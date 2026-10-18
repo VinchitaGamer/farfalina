@@ -7,8 +7,10 @@ import {
   getDressesAction,
   getCarissmaConfigAction,
   updateRentalStatusAction,
+  deleteRentalBookingAction,
 } from "@/app/actions/carissma";
 import { toast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import RentalContractModal from "./rental-contract-modal";
 import OrdersKanbanBoard from "./orders/orders-kanban-board";
 import OrdersCalendarView from "./orders/orders-calendar-view";
@@ -50,6 +52,7 @@ export interface DressItem {
 }
 
 export default function OrdersView() {
+  const confirm = useConfirm();
   const [viewMode, setViewMode] = useState<"kanban" | "calendar" | "agenda">("kanban");
   const [agendaFilter, setAgendaFilter] = useState<"today" | "week" | "month" | "all">("all");
   const [searchFilter, setSearchFilter] = useState("");
@@ -104,6 +107,26 @@ export default function OrdersView() {
       loadAll();
     } else {
       toast.error(res.error || "Error al actualizar estado");
+    }
+  };
+
+  const handleDeleteBooking = async (booking: { id: string; contractNumber: string; clientName: string; dressName: string }) => {
+    const confirmed = await confirm({
+      title: "¿Eliminar contrato de alquiler?",
+      description: `¿Estás seguro de que deseas eliminar el alquiler "${booking.contractNumber}" de ${booking.clientName}?\n\nEsta acción liberará la prenda "${booking.dressName}" restableciendo su estado a "Disponible" en el catálogo y eliminará el registro de renta permanentemente.`,
+      confirmText: "Sí, eliminar alquiler",
+      cancelText: "Cancelar",
+      variant: "destructive",
+    });
+
+    if (!confirmed) return;
+
+    const res = await deleteRentalBookingAction(booking.id);
+    if (res.success) {
+      toast.success(`Alquiler ${booking.contractNumber} eliminado y prenda liberada.`);
+      loadAll();
+    } else {
+      toast.error(res.error || "No se pudo eliminar el alquiler.");
     }
   };
 
@@ -252,6 +275,7 @@ export default function OrdersView() {
           agendaBookings={agendaBookings}
           handleOpenInspectionModal={setInspectingBooking}
           setSelectedContractBooking={setSelectedContractBooking}
+          onDeleteBooking={handleDeleteBooking}
         />
       )}
 
@@ -281,6 +305,7 @@ export default function OrdersView() {
         isOpen={!!selectedContractBooking}
         booking={selectedContractBooking}
         onClose={() => setSelectedContractBooking(null)}
+        onDelete={handleDeleteBooking}
       />
     </div>
   );

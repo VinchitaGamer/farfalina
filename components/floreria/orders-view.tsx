@@ -19,11 +19,13 @@ import {
   Store,
   Phone,
   CreditCard,
-  Edit2
+  Edit2,
+  Trash2
 } from "lucide-react";
-import { getOrdersAction, updateOrderStatusAction } from "@/app/actions/logistics";
+import { getOrdersAction, updateOrderStatusAction, deleteOrderAction } from "@/app/actions/logistics";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import EditOrderModal from "./edit-order-modal";
 
 interface OrderDeliveryItem {
@@ -60,6 +62,8 @@ export default function OrdersView() {
     setOrdersAgendaFilter: setAgendaFilter,
   } = useAppStore();
 
+  const confirm = useConfirm();
+
   const [orders, setOrders] = useState<OrderDeliveryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<OrderDeliveryItem | null>(null);
@@ -90,6 +94,29 @@ export default function OrdersView() {
       loadOrders();
     } else {
       toast.error(res.error || "Error al actualizar estado del pedido");
+    }
+  };
+
+  const handleDeleteOrder = async (order: OrderDeliveryItem) => {
+    const confirmed = await confirm({
+      title: "¿Eliminar pedido?",
+      description: `¿Estás seguro de que deseas eliminar el pedido "${order.orderNumber}" de ${order.clientName}?\n\nEsta acción revertirá los insumos de flores asociados al inventario disponible y eliminará el registro de forma permanente.`,
+      confirmText: "Sí, eliminar pedido",
+      cancelText: "Cancelar",
+      variant: "destructive",
+    });
+
+    if (!confirmed) return;
+
+    const res = await deleteOrderAction(order.id);
+    if (res.success) {
+      toast.success(`Pedido ${order.orderNumber} eliminado correctamente`);
+      if (selectedOrder?.id === order.id) {
+        setSelectedOrder(null);
+      }
+      loadOrders();
+    } else {
+      toast.error(res.error || "No se pudo eliminar el pedido");
     }
   };
 
@@ -598,13 +625,24 @@ export default function OrdersView() {
                                 <Printer className="h-4 w-4" />
                                 <span>Tarjeta</span>
                               </button>
-                              <button
-                                onClick={() => setEditingOrder(order)}
-                                className="min-h-[44px] py-2 px-3 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border border-warm-300 active:scale-95 touch-manipulation"
-                              >
-                                <Edit2 className="h-4 w-4 text-warm-600" />
-                                <span>Editar</span>
-                              </button>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => setEditingOrder(order)}
+                                  className="flex-1 min-h-[44px] py-2 px-2.5 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 border border-warm-300 active:scale-95 touch-manipulation"
+                                  title="Editar Pedido"
+                                >
+                                  <Edit2 className="h-4 w-4 text-warm-600" />
+                                  <span>Editar</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteOrder(order)}
+                                  className="min-h-[44px] min-w-[40px] px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center border border-rose-200 active:scale-95 touch-manipulation"
+                                  title="Eliminar este pedido de la base de datos"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
                             </div>
 
                             {columnStatus === "En preparación" && (
@@ -769,6 +807,15 @@ export default function OrdersView() {
                       >
                         <Edit2 className="h-4 w-4 text-warm-600" />
                         <span>Editar</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteOrder(ord)}
+                        className="min-h-[44px] px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 transition-all flex items-center gap-1.5 active:scale-95 touch-manipulation"
+                        title="Eliminar este pedido"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        <span className="hidden sm:inline">Eliminar</span>
                       </button>
                     </div>
                   </div>
@@ -983,24 +1030,36 @@ export default function OrdersView() {
             )}
 
             {/* Modal Footer */}
-            <div className="pt-2 border-t border-warm-200 flex items-center justify-between gap-2">
+            <div className="pt-2 border-t border-warm-200 flex items-center justify-between gap-2 flex-wrap">
               <button
-                onClick={() => {
-                  const toEdit = selectedOrder;
-                  setSelectedOrder(null);
-                  setEditingOrder(toEdit);
-                }}
-                className="px-4 py-2 bg-terracotta-50 hover:bg-terracotta-100 text-terracotta-700 rounded-xl text-xs font-bold border border-terracotta-300 transition-all flex items-center gap-1.5"
+                type="button"
+                onClick={() => handleDeleteOrder(selectedOrder)}
+                className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 transition-all flex items-center gap-1.5"
+                title="Eliminar este pedido permanentemente"
               >
-                <Edit2 className="h-3.5 w-3.5" />
-                <span>Editar Pedido</span>
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Eliminar Pedido</span>
               </button>
-              <button
-                onClick={() => setSelectedOrder(null)}
-                className="px-5 py-2 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-xl text-xs font-bold transition-all"
-              >
-                Cerrar Ficha
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const toEdit = selectedOrder;
+                    setSelectedOrder(null);
+                    setEditingOrder(toEdit);
+                  }}
+                  className="px-4 py-2 bg-terracotta-50 hover:bg-terracotta-100 text-terracotta-700 rounded-xl text-xs font-bold border border-terracotta-300 transition-all flex items-center gap-1.5"
+                >
+                  <Edit2 className="h-3.5 w-3.5" />
+                  <span>Editar Pedido</span>
+                </button>
+                <button
+                  onClick={() => setSelectedOrder(null)}
+                  className="px-5 py-2 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-xl text-xs font-bold transition-all"
+                >
+                  Cerrar Ficha
+                </button>
+              </div>
             </div>
           </div>
         </div>

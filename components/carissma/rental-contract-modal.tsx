@@ -10,7 +10,8 @@ import {
   User,
   CheckCircle2,
   FileText,
-  DollarSign
+  DollarSign,
+  Trash2
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
@@ -40,9 +41,10 @@ interface RentalContractModalProps {
   isOpen: boolean;
   booking: RentalContractBooking | null;
   onClose: () => void;
+  onDelete?: (booking: { id: string; contractNumber: string; clientName: string; dressName: string }) => void;
 }
 
-export default function RentalContractModal({ isOpen, booking, onClose }: RentalContractModalProps) {
+export default function RentalContractModal({ isOpen, booking, onClose, onDelete }: RentalContractModalProps) {
   const [mounted, setMounted] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -311,16 +313,31 @@ export default function RentalContractModal({ isOpen, booking, onClose }: Rental
           </div>
 
           {/* Modal Footer (Hidden in print) */}
-          <div className="p-3.5 border-t border-warm-200 bg-warm-50 flex items-center justify-between print:hidden shrink-0">
-            <span className="text-xs text-warm-500 font-medium">
-              💡 Puedes imprimir directamente o seleccionar <strong>&quot;Guardar como PDF&quot;</strong> en tu navegador.
-            </span>
-            <button
-              onClick={onClose}
-              className="px-4 py-1.5 bg-warm-200 hover:bg-warm-300 text-warm-800 font-bold rounded-xl text-xs transition-colors"
-            >
-              Cerrar
-            </button>
+          <div className="p-3.5 border-t border-warm-200 bg-warm-50 flex items-center justify-between print:hidden shrink-0 flex-wrap gap-2">
+            <div>
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onDelete(booking);
+                  }}
+                  className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-xs border border-rose-200 transition-colors flex items-center gap-1.5"
+                  title="Eliminar este contrato y liberar prenda"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Eliminar Alquiler</span>
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onClose}
+                className="px-4 py-1.5 bg-warm-200 hover:bg-warm-300 text-warm-800 font-bold rounded-xl text-xs transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       </div>

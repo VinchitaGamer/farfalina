@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Filter, Shield, Printer } from "lucide-react";
+import { Filter, Shield, Printer, Trash2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { BookingItem } from "../orders-view";
 
@@ -13,6 +13,7 @@ interface OrdersAgendaTableProps {
   agendaBookings: BookingItem[];
   handleOpenInspectionModal: (booking: BookingItem) => void;
   setSelectedContractBooking: (booking: BookingItem) => void;
+  onDeleteBooking?: (booking: BookingItem) => void;
 }
 
 export default function OrdersAgendaTable({
@@ -21,6 +22,7 @@ export default function OrdersAgendaTable({
   agendaBookings,
   handleOpenInspectionModal,
   setSelectedContractBooking,
+  onDeleteBooking,
 }: OrdersAgendaTableProps) {
   return (
     <div className="space-y-4">
@@ -102,7 +104,7 @@ export default function OrdersAgendaTable({
                   </div>
                 </div>
 
-                <div className={`grid gap-2 ${b.rentalStatus === "Entregado" ? "grid-cols-2" : "grid-cols-1"}`}>
+                <div className="grid grid-cols-2 gap-2">
                   {b.rentalStatus === "Entregado" && (
                     <button
                       type="button"
@@ -116,11 +118,24 @@ export default function OrdersAgendaTable({
                   <button
                     type="button"
                     onClick={() => setSelectedContractBooking(b)}
-                    className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-warm-100 px-3 py-2 text-xs font-bold text-warm-800 hover:bg-warm-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amberGold-500"
+                    className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-warm-100 px-3 py-2 text-xs font-bold text-warm-800 hover:bg-warm-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amberGold-500 ${
+                      b.rentalStatus === "Entregado" ? "" : "col-span-2"
+                    }`}
                   >
                     <Printer className="h-4 w-4 shrink-0" />
                     <span>Contrato</span>
                   </button>
+                  {onDeleteBooking && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteBooking(b)}
+                      className="col-span-2 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 border border-rose-200"
+                      title="Eliminar Alquiler y Liberar Prenda"
+                    >
+                      <Trash2 className="h-4 w-4 shrink-0" />
+                      <span>Eliminar Alquiler</span>
+                    </button>
+                  )}
                 </div>
               </article>
             );
@@ -201,6 +216,16 @@ export default function OrdersAgendaTable({
                         <Printer className="h-3 w-3" />
                         <span>Contrato</span>
                       </button>
+                      {onDeleteBooking && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteBooking(b)}
+                          className="inline-flex min-h-11 items-center gap-1 rounded-lg bg-rose-50 px-2.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 border border-rose-200"
+                          title="Eliminar Alquiler y Liberar Prenda"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );

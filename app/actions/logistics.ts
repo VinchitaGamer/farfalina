@@ -392,3 +392,63 @@ export async function updateOrderAction(rawInput: UpdateOrderInput): Promise<Act
   }
 }
 
+export async function deleteOrderAction(id: string): Promise<ActionResponse> {
+  try {
+    if (!id || typeof id !== "string") {
+      return {
+        success: false,
+        error: "ID de pedido no provisto",
+        code: "VALIDATION_ERROR",
+      };
+    }
+
+    const order = await prisma.orderDelivery.findUnique({
+      where: { id },
+      include: {
+        recipeItems: true,
+      },
+    });
+
+    if (!order) {
+      return {
+        success: false,
+        error: "El pedido no fue encontrado o ya ha sido eliminado",
+        code: "NOT_FOUND",
+      };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Revert flower inventory (RawIngredient available stock)
+      for (const item of order.recipeItems) {
+        if (item.rawIngredientId && item.quantityNeeded > 0) {
+          await tx.rawIngredient.update({
+            where: { id: item.rawIngredientId },
+            data: {
+              available: {
+                increment: item.quantityNeeded,
+              },
+            },
+          });
+        }
+      }
+
+      // 2. Delete OrderDelivery (OrderRecipeItem is cascade-deleted)
+      await tx.orderDelivery.delete({
+        where: { id },
+      });
+    });
+
+    return {
+      success: true,
+      data: { id, orderNumber: order.orderNumber },
+    };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "Error al eliminar el pedido";
+    return {
+      success: false,
+      error: errorMessage,
+      code: "ORDER_DELETE_ERROR",
+    };
+  }
+}
+

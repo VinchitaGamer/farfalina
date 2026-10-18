@@ -18,16 +18,18 @@ import {
   Printer,
   Search,
   Store,
-  CreditCard
+  CreditCard,
+  Trash2
 } from "lucide-react";
 import {
   getFinancialMetricsAction,
   createFinancialExpenseAction,
   CreateFinancialExpenseInput
 } from "@/app/actions/finances";
-import { getOrdersAction } from "@/app/actions/logistics";
+import { getOrdersAction, deleteOrderAction } from "@/app/actions/logistics";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import ShiftReportModal, { ShiftReportData } from "./shift-report-modal";
 
 interface ExpenseItem {
@@ -70,6 +72,7 @@ export interface MermaLogItem {
 
 export default function AccountingView() {
   const { openCardPrinter } = useAppStore();
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"summary" | "orders" | "shifts" | "analytics">("summary");
   const [orders, setOrders] = useState<OrderDeliveryItem[]>([]);
@@ -137,6 +140,29 @@ export default function AccountingView() {
     }
 
     setLoading(false);
+  };
+
+  const handleDeleteOrder = async (order: OrderDeliveryItem) => {
+    const confirmed = await confirm({
+      title: "¿Eliminar pedido / venta?",
+      description: `¿Estás seguro de que deseas eliminar el registro del pedido "${order.orderNumber}" de ${order.clientName}?\n\nEsta acción revertirá los insumos de flores asociados al inventario disponible y eliminará el registro de venta permanentemente.`,
+      confirmText: "Sí, eliminar pedido",
+      cancelText: "Cancelar",
+      variant: "destructive",
+    });
+
+    if (!confirmed) return;
+
+    const res = await deleteOrderAction(order.id);
+    if (res.success) {
+      toast.success(`Pedido ${order.orderNumber} eliminado correctamente`);
+      if (selectedOrderDetail?.id === order.id) {
+        setSelectedOrderDetail(null);
+      }
+      loadData();
+    } else {
+      toast.error(res.error || "No se pudo eliminar el pedido");
+    }
   };
 
   const handleCreateExpense = async (e: React.FormEvent) => {
@@ -605,6 +631,13 @@ export default function AccountingView() {
                                   >
                                     <Printer className="h-3.5 w-3.5" />
                                   </button>
+                                  <button
+                                    onClick={() => handleDeleteOrder(ord)}
+                                    className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 transition-all"
+                                    title="Eliminar Pedido"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -657,10 +690,10 @@ export default function AccountingView() {
                               }`}>{ord.status}</span>
                             </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-2 border-t border-warm-100 pt-3">
+                          <div className="grid grid-cols-3 gap-2 border-t border-warm-100 pt-3">
                             <button
                               onClick={() => setSelectedOrderDetail(ord)}
-                              className="min-h-11 px-3 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-lg text-xs font-bold transition-all"
+                              className="min-h-11 px-2 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-lg text-xs font-bold transition-all"
                               title="Ver Ficha Completa"
                             >
                               Ver Ficha
@@ -674,10 +707,19 @@ export default function AccountingView() {
                                   date: `${new Date(ord.deliveryDate).toLocaleDateString()} - ${ord.deliveryTime}`,
                                 })
                               }
-                              className="min-h-11 px-3 bg-terracotta-50 hover:bg-terracotta-100 text-terracotta-700 rounded-lg border border-terracotta-200 text-xs font-bold transition-all"
+                              className="min-h-11 px-2 bg-terracotta-50 hover:bg-terracotta-100 text-terracotta-700 rounded-lg border border-terracotta-200 text-xs font-bold transition-all flex items-center justify-center gap-1"
                               title="Imprimir Tarjeta"
                             >
-                              Imprimir Tarjeta
+                              <Printer className="h-3.5 w-3.5" />
+                              <span>Tarjeta</span>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteOrder(ord)}
+                              className="min-h-11 px-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 text-xs font-bold transition-all flex items-center justify-center gap-1"
+                              title="Eliminar Pedido"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              <span>Eliminar</span>
                             </button>
                           </div>
                         </article>
@@ -761,27 +803,39 @@ export default function AccountingView() {
               <p className="text-xs italic text-warm-800 font-serif">&ldquo;{selectedOrderDetail.dedicationMessage}&rdquo;</p>
             </div>
 
-            <div className="pt-2 border-t border-warm-200 flex justify-end gap-2">
+            <div className="pt-2 border-t border-warm-200 flex justify-between items-center gap-2 flex-wrap">
               <button
-                onClick={() =>
-                  openCardPrinter({
-                    client: selectedOrderDetail.clientName,
-                    recipient: selectedOrderDetail.recipientName,
-                    message: selectedOrderDetail.dedicationMessage,
-                    date: `${new Date(selectedOrderDetail.deliveryDate).toLocaleDateString()} - ${selectedOrderDetail.deliveryTime}`,
-                  })
-                }
-                className="px-4 py-2 bg-terracotta-500 hover:bg-terracotta-600 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                type="button"
+                onClick={() => handleDeleteOrder(selectedOrderDetail)}
+                className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 transition-all flex items-center gap-1.5"
+                title="Eliminar este pedido permanentemente"
               >
-                <Printer className="h-3.5 w-3.5" />
-                <span>Imprimir Tarjeta</span>
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Eliminar Venta</span>
               </button>
-              <button
-                onClick={() => setSelectedOrderDetail(null)}
-                className="px-4 py-2 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-xl text-xs font-bold transition-all"
-              >
-                Cerrar
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    openCardPrinter({
+                      client: selectedOrderDetail.clientName,
+                      recipient: selectedOrderDetail.recipientName,
+                      message: selectedOrderDetail.dedicationMessage,
+                      date: `${new Date(selectedOrderDetail.deliveryDate).toLocaleDateString()} - ${selectedOrderDetail.deliveryTime}`,
+                    })
+                  }
+                  className="px-4 py-2 bg-terracotta-500 hover:bg-terracotta-600 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  <span>Imprimir Tarjeta</span>
+                </button>
+                <button
+                  onClick={() => setSelectedOrderDetail(null)}
+                  className="px-4 py-2 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-xl text-xs font-bold transition-all"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
         </div>

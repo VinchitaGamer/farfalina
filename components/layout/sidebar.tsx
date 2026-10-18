@@ -15,9 +15,11 @@ import {
   HelpCircle,
   PieChart,
   X,
-  Bell
+  Bell,
+  ExternalLink
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { openMetaBusinessSuite, META_BUSINESS_FARFALINA_DEFAULT, META_BUSINESS_CARISSMA_DEFAULT } from "@/lib/meta-business";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -31,7 +33,14 @@ export default function Sidebar() {
   const floreriaNav = [
     { href: "/floreria/catalog", label: "E-Commerce y Catálogo", icon: ShoppingBag, badge: "Público" },
     { href: "/floreria/pos", label: "POS e Inventario", icon: Calculator, badge: "Stock Vivo" },
-    { href: "/floreria/omnichannel", label: "Omnicanalidad", icon: MessageSquareText, badge: "Chats" },
+    {
+      href: META_BUSINESS_FARFALINA_DEFAULT,
+      label: "Mensajes",
+      icon: MessageSquareText,
+      badge: "Meta Suite",
+      isExternal: true,
+      onClick: () => openMetaBusinessSuite("farfalina"),
+    },
     { href: "/floreria/orders", label: "Pedidos y Logística", icon: Truck, badge: "En Ruta" },
     { href: "/floreria/crm", label: "CRM, Marketing & Fechas", icon: Users, badge: "Eventos" },
     { href: "/floreria/accounting", label: "Contabilidad & Cajas", icon: PieChart, badge: "Reportes" },
@@ -40,7 +49,14 @@ export default function Sidebar() {
   const carissmaNav = [
     { href: "/carissma/catalog", label: "Catálogo de Vestidos", icon: ShoppingBag, badge: "Alta Costura" },
     { href: "/carissma/pos", label: "POS & Inventario", icon: Calculator, badge: "Caja & Rentas" },
-    { href: "/carissma/omnichannel", label: "Omnicanalidad", icon: MessageSquareText, badge: "Chats" },
+    {
+      href: META_BUSINESS_CARISSMA_DEFAULT,
+      label: "Mensajes",
+      icon: MessageSquareText,
+      badge: "Meta Suite",
+      isExternal: true,
+      onClick: () => openMetaBusinessSuite("carissma"),
+    },
     { href: "/carissma/orders", label: "Calendario & Rentas", icon: CalendarDays, badge: "Ciclo Vida" },
     { href: "/carissma/crm", label: "CRM & Medidas Clientas", icon: Users, badge: "Eventos" },
     { href: "/carissma/accounting", label: "Contabilidad & Cajas", icon: PieChart, badge: "Reportes" },
@@ -83,6 +99,33 @@ export default function Sidebar() {
           {activeSystem === "floreria"
             ? floreriaNav.map((item) => {
                 const Icon = item.icon;
+                if (item.isExternal) {
+                  return (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        item.onClick?.();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3.5 py-3 lg:py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 group text-warm-700 hover:bg-warm-100 hover:text-warm-900"
+                      title="Abrir Meta Business Suite (Bandeja de Mensajes)"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="h-4 w-4 transition-transform group-hover:scale-110 text-terracotta-600" />
+                        <span>{item.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {item.badge && (
+                          <span className="px-2 py-0.5 text-[10px] rounded-full font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 group-hover:bg-emerald-100">
+                            {item.badge}
+                          </span>
+                        )}
+                        <ExternalLink className="h-3 w-3 text-warm-400 group-hover:text-warm-600 transition-colors" />
+                      </div>
+                    </button>
+                  );
+                }
                 const isActive = pathname.startsWith(item.href);
                 return (
                   <Link
@@ -124,6 +167,33 @@ export default function Sidebar() {
               })
             : carissmaNav.map((item) => {
                 const Icon = item.icon;
+                if (item.isExternal) {
+                  return (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        item.onClick?.();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3.5 py-3 lg:py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 group text-warm-700 hover:bg-warm-100 hover:text-warm-900"
+                      title="Abrir Meta Business Suite (Bandeja de Mensajes)"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="h-4 w-4 transition-transform group-hover:scale-110 text-amberGold-600" />
+                        <span>{item.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {item.badge && (
+                          <span className="px-2 py-0.5 text-[10px] rounded-full font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 group-hover:bg-emerald-100">
+                            {item.badge}
+                          </span>
+                        )}
+                        <ExternalLink className="h-3 w-3 text-warm-400 group-hover:text-warm-600 transition-colors" />
+                      </div>
+                    </button>
+                  );
+                }
                 const isActive = pathname.startsWith(item.href);
                 return (
                   <Link

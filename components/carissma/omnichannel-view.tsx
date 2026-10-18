@@ -1,14 +1,13 @@
 "use client";
-import { UnifiedOmnichannelView } from "@/components/shared/omnichannel/unified-omnichannel-view";
+
+import OmnichannelRedirectView from "@/components/shared/omnichannel-redirect-view";
 
 export default function OmnichannelView() {
   return (
-    <UnifiedOmnichannelView
+    <OmnichannelRedirectView
       environment="carissma"
-      accentColor="amberGold"
-      moduleBadge="Atención Omnicanal Carissma"
       brandName="Carissma Alquileres"
-      primaryDrawer="carissma"
+      accentColor="amberGold"
     />
   );
 }
