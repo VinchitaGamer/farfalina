@@ -160,3 +160,16 @@ input[type="number"] {
   }
 }
 
+/* Ocultar badge y drawer flotante inyectado por Netlify */
+iframe[src*="netlify"],
+iframe[id*="netlify"],
+netlify-drawer,
+[data-netlify-drawer],
+div[class*="netlify-badge"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+
