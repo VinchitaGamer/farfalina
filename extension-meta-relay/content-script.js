@@ -658,13 +658,13 @@
   }
 
   // =========================================================================
-  // MODAL DRAWER 1: CREAR PEDIDO FLORAL (FARFALINA)
+  // MODAL DRAWER 1: CREAR PEDIDO FLORAL CON BENTO GRID DE INSUMOS (FARFALINA)
   // =========================================================================
   async function openFloralOrderDrawer() {
     const existing = document.getElementById("farfalina-order-modal-backdrop");
     if (existing) existing.remove();
 
-    if (!catalogData.arrangements || catalogData.arrangements.length === 0) {
+    if (!catalogData.ingredients || catalogData.ingredients.length === 0) {
       await loadCatalogFromBackend();
     }
 
@@ -673,6 +673,32 @@
     const clientNameVal = activeContact.name || "";
     const clientPhoneVal = activeContact.phone || "";
     const todayStr = new Date().toISOString().split("T")[0];
+
+    // Receta local seleccionada: array de { ingredientId, quantity }
+    let selectedRecipe = [];
+    let selectedCategory = "Todos";
+    let ingredientSearch = "";
+    let currentDeliveryType = "delivery";
+    let currentPaymentMethod = "Efectivo";
+
+    // Insumos disponibles (del backend o defaults de fallback)
+    const availableIngredients = (catalogData.ingredients && catalogData.ingredients.length > 0)
+      ? catalogData.ingredients
+      : [
+          { id: "ing-1", name: "Rosas Rojas Importadas", type: "Flor", available: 120, unit: "tallos", costPerUnit: 10 },
+          { id: "ing-2", name: "Girasoles Selección", type: "Flor", available: 45, unit: "tallos", costPerUnit: 8 },
+          { id: "ing-3", name: "Lirios Orientales Blancos", type: "Flor", available: 30, unit: "tallos", costPerUnit: 12 },
+          { id: "ing-4", name: "Tulipanes Holandeses", type: "Flor", available: 25, unit: "tallos", costPerUnit: 15 },
+          { id: "ing-5", name: "Follaje Eucalipto Dólar", type: "Follaje", available: 50, unit: "ramos", costPerUnit: 5 },
+          { id: "ing-6", name: "Caja Redonda Premium Farfalina", type: "Caja", available: 18, unit: "uds", costPerUnit: 25 },
+          { id: "ing-7", name: "Jarrón de Cristal Tallado", type: "Base", available: 12, unit: "uds", costPerUnit: 35 },
+          { id: "ing-8", name: "Cinta de Satén Terracota", type: "Cinta", available: 80, unit: "metros", costPerUnit: 3 },
+          { id: "ing-9", name: "Globo Metalizado Feliz Día", type: "Accesorio", available: 20, unit: "uds", costPerUnit: 15 },
+        ];
+
+    // Categorías únicas
+    const rawCategories = availableIngredients.map((i) => i.type || "Insumo").filter(Boolean);
+    const uniqueCategories = ["Todos", ...Array.from(new Set(rawCategories))];
 
     const backdrop = document.createElement("div");
     backdrop.id = "farfalina-order-modal-backdrop";
@@ -694,8 +720,8 @@
       background: #ffffff;
       color: #1c1917;
       width: 100%;
-      max-width: 580px;
-      max-height: 90vh;
+      max-width: 680px;
+      max-height: 92vh;
       border-radius: 20px;
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
       overflow-y: auto;
@@ -706,116 +732,208 @@
     `;
 
     modal.innerHTML = `
-      <div style="padding: 16px 20px; background: #fafaf9; border-bottom: 1px solid #e7e5e4; display: flex; align-items: center; justify-content: space-between; border-radius: 20px 20px 0 0;">
+      <!-- Modal Header -->
+      <div style="padding: 14px 20px; background: #fafaf9; border-bottom: 1px solid #e7e5e4; display: flex; align-items: center; justify-content: space-between; border-radius: 20px 20px 0 0; position: sticky; top: 0; z-index: 10;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 20px;">🌸</span>
           <div>
-            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #1c1917;">Florería Farfalina • Emitir Pedido desde Meta</h3>
-            <p style="margin: 2px 0 0 0; font-size: 11px; color: #78716c;">El pedido impactará Logística, Arqueo de Caja y CRM automáticamente.</p>
+            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #1c1917;">Emisión de Ticket & Pedido Floral</h3>
+            <p style="margin: 1px 0 0 0; font-size: 11px; color: #78716c;">Descuenta inventario en vivo y registra el pedido en POS, Logística y CRM.</p>
           </div>
         </div>
-        <button id="btn-close-modal" style="background: none; border: none; font-size: 20px; color: #a8a29e; cursor: pointer; padding: 4px;">&times;</button>
+        <button id="btn-close-modal" style="background: none; border: none; font-size: 22px; color: #a8a29e; cursor: pointer; padding: 2px 6px;">&times;</button>
       </div>
 
-      <form id="farfalina-order-form" style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #f5f5f4; padding: 12px; border-radius: 12px; border: 1px solid #e7e5e4;">
-          <div>
-            <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #57534e; margin-bottom: 4px;">Cliente Comprador *</label>
-            <input type="text" id="order-client-name" value="${clientNameVal}" required placeholder="Nombre del cliente" style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-weight: 600; color: #1c1917;" />
+      <!-- Form Body -->
+      <form id="farfalina-order-form" style="padding: 18px 20px; display: flex; flex-direction: column; gap: 14px;">
+        
+        <!-- SECTION 1: BENTO GRID DE INSUMOS DE LA RECETA -->
+        <div style="padding: 12px; background: #fafaf9; border: 1px solid #e7e5e4; border-radius: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e7e5e4; padding-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12px; color: #1c1917;">
+              <span>📦</span>
+              <span>Bento Grid: Insumos de la Receta del Ticket</span>
+            </div>
+            <span id="bento-total-cost" style="font-size: 11px; font-family: monospace; font-weight: 700; color: #c2410c; background: #fff; padding: 2px 8px; border-radius: 6px; border: 1px solid #fed7aa;">
+              Costo Insumos: 0 Bs
+            </span>
           </div>
-          <div>
-            <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #57534e; margin-bottom: 4px;">Teléfono / WhatsApp / Perfil *</label>
-            <input type="text" id="order-client-phone" value="${clientPhoneVal}" required placeholder="+591 ... o @perfil" style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-family: monospace; color: #1c1917;" />
+
+          <!-- Filtro de Categorías y Buscador -->
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: space-between; align-items: center;">
+            <div id="bento-categories-bar" style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px;">
+              ${uniqueCategories.map((cat) => `
+                <button type="button" class="bento-cat-btn ${cat === 'Todos' ? 'active' : ''}" data-cat="${cat}" style="padding: 3px 8px; font-size: 10px; font-weight: 700; border-radius: 6px; border: 1px solid ${cat === 'Todos' ? '#e2553d' : '#e4e4e7'}; background: ${cat === 'Todos' ? '#e2553d' : '#fff'}; color: ${cat === 'Todos' ? '#fff' : '#52525b'}; cursor: pointer;">
+                  ${cat}
+                </button>
+              `).join("")}
+            </div>
+            <input type="text" id="bento-search-input" placeholder="Buscar por nombre..." style="width: 150px; padding: 4px 8px; font-size: 11px; border: 1px solid #d4d4d8; border-radius: 6px; outline: none;" />
+          </div>
+
+          <!-- Grid de Tarjetas de Insumos -->
+          <div id="bento-cards-container" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-height: 180px; overflow-y: auto; padding-right: 2px;">
+            <!-- Renderizado dinámico vía renderBentoCards() -->
           </div>
         </div>
 
-        <div style="display: flex; gap: 10px;">
-          <label style="flex: 1; display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #fff; border: 2px solid #e2553d; border-radius: 10px; font-size: 11px; font-weight: 700; cursor: pointer;">
-            <input type="radio" name="order-delivery-type" value="delivery" checked style="accent-color: #e2553d;" />
-            <span>🚚 Envío a Domicilio</span>
-          </label>
-          <label style="flex: 1; display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #fff; border: 1px solid #d6d3d1; border-radius: 10px; font-size: 11px; font-weight: 700; cursor: pointer;">
-            <input type="radio" name="order-delivery-type" value="pickup" style="accent-color: #e2553d;" />
-            <span>🏪 Recoger en Tienda</span>
-          </label>
-        </div>
-
-        <div id="delivery-details-box" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-          <div>
-            <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 4px;">Nombre Destinatario *</label>
-            <input type="text" id="order-recipient-name" value="${clientNameVal}" required style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px;" />
+        <!-- SECTION 2: DATOS DEL CLIENTE COMPRADOR (CRM) -->
+        <div style="padding: 12px; background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 14px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: #1c1917;">
+              <span>👤</span>
+              <span>Cliente Comprador (Fidelización CRM)</span>
+            </div>
+            <span style="font-size: 10px; font-weight: 700; color: #b45309; background: #fef3c7; padding: 2px 8px; border-radius: 9999px;">
+              Suma Puntos
+            </span>
           </div>
-          <div>
-            <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 4px;">Zona Delivery *</label>
-            <select id="order-zone" style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px;">
-              <option value="Calacoto, Zona Sur">Calacoto, Zona Sur</option>
-              <option value="Achumani, Zona Sur">Achumani, Zona Sur</option>
-              <option value="Sopocachi">Sopocachi</option>
-              <option value="Centro, La Paz">Centro, La Paz</option>
-              <option value="Miraflores">Miraflores</option>
-              <option value="El Alto">El Alto</option>
-            </select>
-          </div>
-          <div style="grid-column: span 2;">
-            <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 4px;">Dirección Exacta de Entrega *</label>
-            <input type="text" id="order-address" placeholder="Calle, Av., Edificio, Nro de puerta..." style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px;" />
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #57534e; margin-bottom: 3px;">Nombre del Cliente *</label>
+              <input type="text" id="order-client-name" value="${clientNameVal}" required placeholder="Nombre del comprador..." style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-weight: 600; color: #1c1917;" />
+            </div>
+            <div>
+              <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #57534e; margin-bottom: 3px;">Teléfono / WhatsApp *</label>
+              <input type="text" id="order-client-phone" value="${clientPhoneVal}" required placeholder="Teléfono del comprador..." style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-family: monospace; color: #1c1917;" />
+            </div>
           </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-          <div>
-            <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 4px;">Fecha de Entrega *</label>
-            <input type="date" id="order-date" value="${todayStr}" required style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-family: monospace;" />
+        <!-- SECTION 3: DETALLES DE ENTREGA & DESPACHO -->
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <h4 style="margin: 0; font-size: 11px; font-weight: 700; color: #44403c; border-bottom: 1px solid #e7e5e4; padding-bottom: 4px;">
+            Detalles de Entrega & Despacho
+          </h4>
+
+          <!-- Modalidad de Despacho -->
+          <div style="display: flex; gap: 8px;">
+            <label id="lbl-mode-delivery" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; background: #fff; border: 2px solid #e2553d; border-radius: 10px; font-size: 11px; font-weight: 700; cursor: pointer; color: #c2410c;">
+              <input type="radio" name="order-delivery-type" value="delivery" checked style="accent-color: #e2553d;" />
+              <span>🚚 Envío a Domicilio</span>
+            </label>
+            <label id="lbl-mode-pickup" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; background: #fff; border: 1px solid #d6d3d1; border-radius: 10px; font-size: 11px; font-weight: 700; cursor: pointer; color: #57534e;">
+              <input type="radio" name="order-delivery-type" value="pickup" style="accent-color: #e2553d;" />
+              <span>🏪 Recoger en Tienda (Pick-up)</span>
+            </label>
           </div>
+
+          <!-- Destinatario & Nombre del Arreglo -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 3px;">Nombre Destinatario *</label>
+              <input type="text" id="order-recipient-name" value="${clientNameVal}" required style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px;" />
+            </div>
+            <div>
+              <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 3px;">Nombre del Arreglo *</label>
+              <input type="text" id="order-arrangement-name" placeholder="Ej. Bouquet Imperial 24 Rosas" value="Bouquet Imperial 24 Rosas Rojas" required style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px;" />
+            </div>
+          </div>
+
+          <!-- Sugerencias Rápidas de Arreglos -->
+          <div style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px;">
+            <button type="button" class="btn-quick-arr" data-name="Bouquet Imperial 24 Rosas Rojas" data-price="280" style="padding: 2px 7px; background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 6px; font-size: 9px; font-weight: 600; cursor: pointer; white-space: nowrap;">🌹 Bouquet 24 Rosas (280 Bs)</button>
+            <button type="button" class="btn-quick-arr" data-name="Caja Premium Girasoles y Lirios Sol de Verano" data-price="240" style="padding: 2px 7px; background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 6px; font-size: 9px; font-weight: 600; cursor: pointer; white-space: nowrap;">🌻 Girasoles & Lirios (240 Bs)</button>
+            <button type="button" class="btn-quick-arr" data-name="Jarrón de Cristal Elegancia Real" data-price="320" style="padding: 2px 7px; background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 6px; font-size: 9px; font-weight: 600; cursor: pointer; white-space: nowrap;">🏺 Jarrón Cristal (320 Bs)</button>
+            <button type="button" class="btn-quick-arr" data-name="Sombrerera Tulipanes Amarillos Solsticio" data-price="290" style="padding: 2px 7px; background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 6px; font-size: 9px; font-weight: 600; cursor: pointer; white-space: nowrap;">🌷 Sombrerera Tulipanes (290 Bs)</button>
+          </div>
+
+          <!-- Fechas & Horas -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label id="lbl-delivery-date" style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 3px;">Fecha de Entrega *</label>
+              <input type="date" id="order-date" value="${todayStr}" required style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-family: monospace;" />
+            </div>
+            <div>
+              <label id="lbl-delivery-time" style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 3px;">Hora Estimada *</label>
+              <input type="time" id="order-time" value="16:00" required style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-family: monospace;" />
+            </div>
+          </div>
+
+          <!-- Chips de Horarios Sugeridos -->
+          <div style="display: flex; items-center; gap: 4px; overflow-x: auto; padding-bottom: 2px;">
+            <span style="font-size: 9px; color: #78716c; font-weight: 600; align-self: center;">Horarios sugeridos:</span>
+            ${["10:00", "12:00", "15:00", "16:30", "18:00", "19:30"].map((t) => `
+              <button type="button" class="btn-chip-time" data-time="${t}" style="padding: 2px 6px; border-radius: 6px; font-size: 9px; font-weight: 700; font-family: monospace; border: 1px solid #e7e5e4; background: #f5f5f4; color: #44403c; cursor: pointer;">
+                ${t}
+              </button>
+            `).join("")}
+          </div>
+
+          <!-- Caja de Destino / Recojo -->
+          <div id="box-pickup-info" style="display: none; padding: 10px 12px; background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 10px; font-size: 11px; color: #581c87;">
+            <p style="margin: 0; font-weight: 700;">🏪 Modalidad: Recoger en Tienda (Pick-up)</p>
+            <p style="margin: 2px 0 0 0; color: #6b21a8; font-size: 10px;">El pedido estará listo en tienda central. El costo de delivery queda exento en 0 Bs.</p>
+          </div>
+
+          <div id="box-delivery-address" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 3px;">Zona Delivery *</label>
+              <select id="order-zone" style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px;">
+                <option value="Calacoto, Zona Sur">Calacoto, Zona Sur</option>
+                <option value="Achumani, Zona Sur">Achumani, Zona Sur</option>
+                <option value="Sopocachi">Sopocachi</option>
+                <option value="Centro, La Paz">Centro, La Paz</option>
+                <option value="Miraflores">Miraflores</option>
+                <option value="El Alto">El Alto</option>
+              </select>
+            </div>
+            <div>
+              <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 3px;">Dirección Exacta *</label>
+              <input type="text" id="order-address" placeholder="Calle, Av., Edificio, Nro..." style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px;" />
+            </div>
+          </div>
+
+          <!-- Dedicatoria -->
           <div>
-            <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 4px;">Hora de Entrega *</label>
-            <input type="time" id="order-time" value="16:00" required style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-family: monospace;" />
+            <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 3px;">Mensaje Dedicatoria Impresa *</label>
+            <textarea id="order-dedication" rows="2" placeholder="Escribe la dedicatoria para la tarjeta..." style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-family: inherit;">¡Feliz Cumpleaños! Con todo mi cariño y amor en tu día especial.</textarea>
           </div>
         </div>
 
-        <div>
-          <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 4px;">Arreglo Floral *</label>
-          <input type="text" id="order-arrangement-name" placeholder="Ej. Bouquet Imperial 24 Rosas Rojas" value="Bouquet Imperial 24 Rosas Rojas" required style="width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px;" />
-          <div style="display: flex; gap: 5px; overflow-x: auto; margin-top: 6px; padding-bottom: 2px;">
-            <button type="button" class="btn-quick-arr" data-name="Bouquet Imperial 24 Rosas Rojas" data-price="280" style="padding: 3px 8px; background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 6px; font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap;">🌹 Bouquet 24 Rosas (280 Bs)</button>
-            <button type="button" class="btn-quick-arr" data-name="Caja Premium Girasoles y Lirios Sol de Verano" data-price="240" style="padding: 3px 8px; background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 6px; font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap;">🌻 Girasoles & Lirios (240 Bs)</button>
-            <button type="button" class="btn-quick-arr" data-name="Jarrón de Cristal Elegancia Real" data-price="320" style="padding: 3px 8px; background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 6px; font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap;">🏺 Jarrón Cristal (320 Bs)</button>
-            <button type="button" class="btn-quick-arr" data-name="Sombrerera Tulipanes Amarillos Solsticio" data-price="290" style="padding: 3px 8px; background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 6px; font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap;">🌷 Sombrerera Tulipanes (290 Bs)</button>
+        <!-- SECTION 4: FINANCIERO & RENTABILIDAD -->
+        <div style="padding: 12px; background: #fafaf9; border: 1px solid #e7e5e4; border-radius: 14px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 11px; font-weight: 700; color: #1c1917;">Total y Margen Neto</span>
+            <span id="bento-margin-badge" style="font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; background: #dcfce7; color: #15803d; border: 1px solid #86efac;">
+              Margen: 100%
+            </span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label style="display: block; font-size: 10px; font-weight: 700; color: #44403c; margin-bottom: 3px;">Precio Arreglo (Bs) *</label>
+              <input type="number" id="order-sale-price" value="280" required min="1" style="width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 13px; font-weight: 700; border: 1px solid #d6d3d1; border-radius: 6px; font-family: monospace;" />
+            </div>
+            <div>
+              <label id="lbl-fee-title" style="display: block; font-size: 10px; font-weight: 700; color: #44403c; margin-bottom: 3px;">Costo Envío (Bs)</label>
+              <input type="number" id="order-delivery-fee" value="20" min="0" style="width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 13px; font-weight: 700; border: 1px solid #d6d3d1; border-radius: 6px; font-family: monospace;" />
+            </div>
+          </div>
+
+          <!-- Método de Pago Buttons -->
+          <div style="display: flex; flex-direction: column; gap: 3px;">
+            <label style="font-size: 10px; font-weight: 700; color: #44403c;">Método de Pago *</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
+              ${["Efectivo", "QR", "Tarjeta"].map((m) => `
+                <button type="button" class="btn-payment-method ${m === 'Efectivo' ? 'active' : ''}" data-method="${m}" style="padding: 5px; font-size: 11px; font-weight: 700; border-radius: 6px; border: 1px solid ${m === 'Efectivo' ? '#e2553d' : '#e4e4e7'}; background: ${m === 'Efectivo' ? '#e2553d' : '#fff'}; color: ${m === 'Efectivo' ? '#fff' : '#44403c'}; cursor: pointer;">
+                  ${m}
+                </button>
+              `).join("")}
+            </div>
+          </div>
+
+          <!-- Total a Cobrar -->
+          <div style="border-top: 1px solid #e7e5e4; padding-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 700; color: #1c1917;">TOTAL A COBRAR:</span>
+            <span id="order-grand-total" style="font-size: 16px; font-weight: 800; color: #c2410c; font-family: monospace;">300 Bs</span>
           </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; background: #fff7ed; padding: 12px; border-radius: 12px; border: 1px solid #fed7aa;">
-          <div>
-            <label style="display: block; font-size: 10px; font-weight: 700; color: #9a3412; margin-bottom: 4px;">Precio Arreglo (Bs) *</label>
-            <input type="number" id="order-sale-price" value="280" required min="1" style="width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 13px; font-weight: 700; border: 1px solid #fdba74; border-radius: 6px; font-family: monospace;" />
-          </div>
-          <div>
-            <label style="display: block; font-size: 10px; font-weight: 700; color: #9a3412; margin-bottom: 4px;">Envío (Bs)</label>
-            <input type="number" id="order-delivery-fee" value="20" min="0" style="width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 13px; font-weight: 700; border: 1px solid #fdba74; border-radius: 6px; font-family: monospace;" />
-          </div>
-          <div>
-            <label style="display: block; font-size: 10px; font-weight: 700; color: #9a3412; margin-bottom: 4px;">Total a Cobrar</label>
-            <div id="order-grand-total" style="font-size: 15px; font-weight: 800; color: #c2410c; padding: 6px 0; font-family: monospace;">300 Bs</div>
-          </div>
-        </div>
-
-        <div>
-          <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 4px;">Método de Pago *</label>
-          <select id="order-payment-method" style="width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px;">
-            <option value="Efectivo">Efectivo contra entrega / Caja</option>
-            <option value="QR">Transferencia Bancaria / QR Simple</option>
-            <option value="Tarjeta">Tarjeta de Débito / Crédito</option>
-          </select>
-        </div>
-
-        <div>
-          <label style="display: block; font-size: 11px; font-weight: 700; color: #44403c; margin-bottom: 4px;">Mensaje Dedicatoria Impresa *</label>
-          <textarea id="order-dedication" rows="2" placeholder="Escribe la dedicatoria para la tarjeta..." style="width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 12px; border: 1px solid #d6d3d1; border-radius: 8px; font-family: inherit;">¡Feliz Cumpleaños! Con todo mi cariño y amor en tu día especial.</textarea>
-        </div>
-
-        <div style="display: flex; gap: 10px; margin-top: 8px;">
+        <!-- ACTIONS -->
+        <div style="display: flex; gap: 10px; margin-top: 4px;">
           <button type="button" id="btn-cancel-order" style="flex: 1; padding: 10px; background: #f5f5f4; border: 1px solid #d6d3d1; border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; color: #44403c;">Cancelar</button>
-          <button type="submit" id="btn-submit-order" style="flex: 2; padding: 10px; background: #e2553d; border: none; border-radius: 10px; font-size: 12px; font-weight: 700; color: #ffffff; cursor: pointer; box-shadow: 0 4px 12px rgba(226, 85, 61, 0.35);">🌸 Confirmar y Emitir Pedido</button>
+          <button type="submit" id="btn-submit-order" style="flex: 2; padding: 10px; background: #e2553d; border: none; border-radius: 10px; font-size: 12px; font-weight: 700; color: #ffffff; cursor: pointer; box-shadow: 0 4px 12px rgba(226, 85, 61, 0.35);">🌸 Emitir Pedido & Descontar Stock</button>
         </div>
       </form>
     `;
@@ -823,80 +941,269 @@
     backdrop.appendChild(modal);
     document.body.appendChild(backdrop);
 
+    // =========================================================================
+    // LÓGICA INTERACTIVA DEL BENTO GRID & FORMULARIO
+    // =========================================================================
+    const cardsContainer = document.getElementById("bento-cards-container");
+    const totalCostBadge = document.getElementById("bento-total-cost");
+    const marginBadge = document.getElementById("bento-margin-badge");
+    const totalDisplay = document.getElementById("order-grand-total");
     const priceInput = document.getElementById("order-sale-price");
     const feeInput = document.getElementById("order-delivery-fee");
-    const totalDisplay = document.getElementById("order-grand-total");
-    const deliveryDetailBox = document.getElementById("delivery-details-box");
+    const searchInput = document.getElementById("bento-search-input");
+    const boxPickup = document.getElementById("box-pickup-info");
+    const boxDelivery = document.getElementById("box-delivery-address");
+    const lblDeliveryDate = document.getElementById("lbl-delivery-date");
+    const lblDeliveryTime = document.getElementById("lbl-delivery-time");
+    const lblFeeTitle = document.getElementById("lbl-fee-title");
 
-    function updateTotal() {
-      const p = parseFloat(priceInput.value) || 0;
-      const f = parseFloat(feeInput.value) || 0;
-      totalDisplay.textContent = `${(p + f).toFixed(0)} Bs`;
+    function calculateTotals() {
+      const sale = parseFloat(priceInput.value) || 0;
+      const fee = currentDeliveryType === "pickup" ? 0 : (parseFloat(feeInput.value) || 0);
+      const grandTotal = sale + fee;
+
+      const totalMaterialCost = selectedRecipe.reduce((acc, r) => {
+        const ing = availableIngredients.find((i) => i.id === r.ingredientId);
+        return acc + (ing ? (ing.costPerUnit || 0) * r.quantity : 0);
+      }, 0);
+
+      const netMargin = grandTotal - totalMaterialCost;
+      const marginPct = grandTotal > 0 ? (netMargin / grandTotal) * 100 : 0;
+
+      totalCostBadge.textContent = `Costo Insumos: ${totalMaterialCost.toFixed(0)} Bs`;
+      totalDisplay.textContent = `${grandTotal.toFixed(0)} Bs`;
+
+      marginBadge.textContent = `Margen: ${marginPct.toFixed(1)}%`;
+      if (marginPct >= 40) {
+        marginBadge.style.background = "#dcfce7";
+        marginBadge.style.color = "#15803d";
+        marginBadge.style.borderColor = "#86efac";
+      } else if (marginPct >= 20) {
+        marginBadge.style.background = "#fef3c7";
+        marginBadge.style.color = "#b45309";
+        marginBadge.style.borderColor = "#fcd34d";
+      } else {
+        marginBadge.style.background = "#fee2e2";
+        marginBadge.style.color = "#b91c1c";
+        marginBadge.style.borderColor = "#fca5a5";
+      }
     }
 
-    priceInput.addEventListener("input", updateTotal);
-    feeInput.addEventListener("input", updateTotal);
+    function renderBentoCards() {
+      const q = (searchInput?.value || "").trim().toLowerCase();
+      const filtered = availableIngredients.filter((ing) => {
+        const matchesCat = selectedCategory === "Todos" || (ing.type || "").toLowerCase() === selectedCategory.toLowerCase();
+        const matchesQ = !q || ing.name.toLowerCase().includes(q) || (ing.type && ing.type.toLowerCase().includes(q));
+        return matchesCat && matchesQ;
+      });
 
-    modal.querySelectorAll('input[name="order-delivery-type"]').forEach((radio) => {
-      radio.addEventListener("change", (e) => {
-        if (e.target.value === "pickup") {
-          feeInput.value = "0";
-          deliveryDetailBox.style.opacity = "0.4";
-        } else {
-          feeInput.value = "20";
-          deliveryDetailBox.style.opacity = "1";
-        }
-        updateTotal();
+      if (filtered.length === 0) {
+        cardsContainer.innerHTML = `<div style="grid-column: span 3; text-align: center; font-size: 11px; color: #a1a1aa; padding: 20px;">No se encontraron insumos con ese filtro.</div>`;
+        return;
+      }
+
+      cardsContainer.innerHTML = filtered.map((ing) => {
+        const sel = selectedRecipe.find((r) => r.ingredientId === ing.id);
+        const qty = sel ? sel.quantity : 0;
+        const isSelected = qty > 0;
+
+        return `
+          <div style="background: ${isSelected ? '#fff7ed' : '#ffffff'}; border: 1px solid ${isSelected ? '#ea580c' : '#e4e4e7'}; border-radius: 10px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 8px; font-weight: 700; background: #f4f4f5; color: #52525b; padding: 1px 4px; border-radius: 4px;">${ing.type || 'Insumo'}</span>
+                <span style="font-size: 9px; color: #71717a;">${ing.available} ${ing.unit}</span>
+              </div>
+              <p style="margin: 3px 0 0 0; font-size: 11px; font-weight: 700; color: #18181b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${ing.name}">${ing.name}</p>
+              <span style="font-size: 9px; font-family: monospace; color: #71717a;">${ing.costPerUnit} Bs/u</span>
+            </div>
+
+            <div style="border-top: 1px solid #f4f4f5; padding-top: 4px;">
+              ${isSelected ? `
+                <div style="display: flex; align-items: center; justify-content: space-between; background: #fff; border: 1px solid #fdba74; border-radius: 6px; padding: 2px 4px;">
+                  <button type="button" class="btn-step-minus" data-id="${ing.id}" style="border: none; background: transparent; cursor: pointer; color: #ef4444; font-size: 10px; padding: 0 2px;">🗑️</button>
+                  <span style="font-size: 11px; font-weight: 700; color: #9a3412;">${qty}</span>
+                  <button type="button" class="btn-step-plus" data-id="${ing.id}" style="border: none; background: transparent; cursor: pointer; color: #ea580c; font-size: 12px; font-weight: 700; padding: 0 2px;">+</button>
+                </div>
+              ` : `
+                <button type="button" class="btn-add-ing" data-id="${ing.id}" style="width: 100%; border: none; background: #f4f4f5; color: #27272a; padding: 3px; border-radius: 6px; font-size: 10px; font-weight: 700; cursor: pointer; transition: background 0.15s;">
+                  + Añadir
+                </button>
+              `}
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      // Vincular eventos a los botones del grid
+      cardsContainer.querySelectorAll(".btn-add-ing").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.dataset.id;
+          selectedRecipe.push({ ingredientId: id, quantity: 1 });
+          renderBentoCards();
+          calculateTotals();
+        });
+      });
+
+      cardsContainer.querySelectorAll(".btn-step-plus").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.dataset.id;
+          const item = selectedRecipe.find((r) => r.ingredientId === id);
+          if (item) item.quantity += 1;
+          renderBentoCards();
+          calculateTotals();
+        });
+      });
+
+      cardsContainer.querySelectorAll(".btn-step-minus").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.dataset.id;
+          const idx = selectedRecipe.findIndex((r) => r.ingredientId === id);
+          if (idx !== -1) {
+            if (selectedRecipe[idx].quantity > 1) {
+              selectedRecipe[idx].quantity -= 1;
+            } else {
+              selectedRecipe.splice(idx, 1);
+            }
+          }
+          renderBentoCards();
+          calculateTotals();
+        });
+      });
+    }
+
+    renderBentoCards();
+    calculateTotals();
+
+    // Eventos de Categorías Bento
+    document.querySelectorAll(".bento-cat-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".bento-cat-btn").forEach((b) => {
+          b.style.background = "#fff";
+          b.style.color = "#52525b";
+          b.style.borderColor = "#e4e4e7";
+        });
+        btn.style.background = "#e2553d";
+        btn.style.color = "#fff";
+        btn.style.borderColor = "#e2553d";
+        selectedCategory = btn.dataset.cat;
+        renderBentoCards();
       });
     });
 
+    searchInput?.addEventListener("input", renderBentoCards);
+    priceInput?.addEventListener("input", calculateTotals);
+    feeInput?.addEventListener("input", calculateTotals);
+
+    // Modalidad Pick-up vs Delivery
+    modal.querySelectorAll('input[name="order-delivery-type"]').forEach((radio) => {
+      radio.addEventListener("change", (e) => {
+        currentDeliveryType = e.target.value;
+        const lblDel = document.getElementById("lbl-mode-delivery");
+        const lblPick = document.getElementById("lbl-mode-pickup");
+
+        if (currentDeliveryType === "pickup") {
+          feeInput.value = "0";
+          feeInput.disabled = true;
+          boxPickup.style.display = "block";
+          boxDelivery.style.display = "none";
+          lblDeliveryDate.textContent = "Fecha de Retiro *";
+          lblDeliveryTime.textContent = "Hora Estimada Retiro *";
+          lblFeeTitle.textContent = "Costo Envío (Exento)";
+
+          lblPick.style.borderColor = "#9333ea";
+          lblPick.style.color = "#6b21a8";
+          lblDel.style.borderColor = "#d6d3d1";
+          lblDel.style.color = "#57534e";
+        } else {
+          feeInput.value = "20";
+          feeInput.disabled = false;
+          boxPickup.style.display = "none";
+          boxDelivery.style.display = "grid";
+          lblDeliveryDate.textContent = "Fecha de Entrega *";
+          lblDeliveryTime.textContent = "Hora Estimada *";
+          lblFeeTitle.textContent = "Costo Envío (Bs)";
+
+          lblDel.style.borderColor = "#e2553d";
+          lblDel.style.color = "#c2410c";
+          lblPick.style.borderColor = "#d6d3d1";
+          lblPick.style.color = "#57534e";
+        }
+        calculateTotals();
+      });
+    });
+
+    // Sugerencias de Arreglos
     modal.querySelectorAll(".btn-quick-arr").forEach((btn) => {
       btn.addEventListener("click", () => {
         document.getElementById("order-arrangement-name").value = btn.dataset.name;
         priceInput.value = btn.dataset.price;
-        updateTotal();
+        calculateTotals();
+      });
+    });
+
+    // Chips de Horas
+    modal.querySelectorAll(".btn-chip-time").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.getElementById("order-time").value = btn.dataset.time;
+      });
+    });
+
+    // Método de Pago
+    modal.querySelectorAll(".btn-payment-method").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        modal.querySelectorAll(".btn-payment-method").forEach((b) => {
+          b.style.background = "#fff";
+          b.style.color = "#44403c";
+          b.style.borderColor = "#e4e4e7";
+        });
+        btn.style.background = "#e2553d";
+        btn.style.color = "#fff";
+        btn.style.borderColor = "#e2553d";
+        currentPaymentMethod = btn.dataset.method;
       });
     });
 
     document.getElementById("btn-close-modal").addEventListener("click", () => backdrop.remove());
     document.getElementById("btn-cancel-order").addEventListener("click", () => backdrop.remove());
 
+    // Submit Handler
     document.getElementById("farfalina-order-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const submitBtn = document.getElementById("btn-submit-order");
       submitBtn.disabled = true;
       submitBtn.textContent = "⏳ Registrando en Farfalina...";
 
-      const deliveryType = modal.querySelector('input[name="order-delivery-type"]:checked').value;
-      const salePrice = parseFloat(priceInput.value) || 0;
-      const deliveryFee = deliveryType === "pickup" ? 0 : (parseFloat(feeInput.value) || 0);
+      const salePriceVal = parseFloat(priceInput.value) || 0;
+      const deliveryFeeVal = currentDeliveryType === "pickup" ? 0 : (parseFloat(feeInput.value) || 0);
       const selectedArrName = document.getElementById("order-arrangement-name").value.trim();
 
-      const matchedArr = (catalogData.arrangements || []).find(
-        (a) => a.name.toLowerCase() === selectedArrName.toLowerCase() || a.name.toLowerCase().includes(selectedArrName.toLowerCase())
-      );
-      const recipeItems = matchedArr?.recipeItems?.map((ri) => ({
-        rawIngredientId: ri.rawIngredientId,
-        quantityNeeded: ri.quantityNeeded,
-        unitCost: ri.rawIngredient?.costPerUnit || 0,
-      })) || [];
+      // Mapear insumos con costo unitario para descontar stock en BD
+      const recipeItemsPayload = selectedRecipe.map((r) => {
+        const ing = availableIngredients.find((i) => i.id === r.ingredientId);
+        return {
+          rawIngredientId: r.ingredientId,
+          quantityNeeded: r.quantity,
+          unitCost: ing ? (ing.costPerUnit || 0) : 0,
+        };
+      });
 
       const payload = {
         clientName: document.getElementById("order-client-name").value.trim(),
         clientPhone: document.getElementById("order-client-phone").value.trim(),
         recipientName: document.getElementById("order-recipient-name").value.trim(),
-        deliveryType,
-        address: document.getElementById("order-address").value.trim(),
-        zone: document.getElementById("order-zone").value,
+        deliveryType: currentDeliveryType,
+        address: currentDeliveryType === "pickup" ? "Retiro en Tienda / Local" : document.getElementById("order-address").value.trim(),
+        zone: currentDeliveryType === "pickup" ? "Tienda Central" : document.getElementById("order-zone").value,
         deliveryDate: document.getElementById("order-date").value,
         deliveryTime: document.getElementById("order-time").value,
         arrangementName: selectedArrName,
-        salePrice,
-        deliveryFee,
-        total: salePrice + deliveryFee,
-        paymentMethod: document.getElementById("order-payment-method").value,
+        salePrice: salePriceVal,
+        deliveryFee: deliveryFeeVal,
+        total: salePriceVal + deliveryFeeVal,
+        paymentMethod: currentPaymentMethod,
         dedicationMessage: document.getElementById("order-dedication").value.trim(),
-        recipeItems,
+        recipeItems: recipeItemsPayload,
         threadId: activeContact.threadId,
         channel: activeContact.channel,
         environment: "farfalina",
@@ -911,18 +1218,18 @@
 
         if (res && res.success && res.data && res.data.success) {
           const orderNum = res.data.data?.orderNumber || "PED-EXITOSO";
-          showFloatingToast(`¡Pedido #${orderNum} creado con éxito en Farfalina! Stock y caja actualizados.`);
+          showFloatingToast(`¡Pedido #${orderNum} creado exitosamente! Insumos descontados y caja actualizada.`);
           backdrop.remove();
         } else {
           const errMsg = res?.data?.error || res?.error || "Error al emitir pedido";
           alert(`Error: ${errMsg}`);
           submitBtn.disabled = false;
-          submitBtn.textContent = "🌸 Confirmar y Emitir Pedido";
+          submitBtn.textContent = "🌸 Emitir Pedido & Descontar Stock";
         }
       } catch (err) {
         alert(`Error de conexión con el servidor Farfalina: ${err.message}`);
         submitBtn.disabled = false;
-        submitBtn.textContent = "🌸 Confirmar y Emitir Pedido";
+        submitBtn.textContent = "🌸 Emitir Pedido & Descontar Stock";
       }
     });
   }

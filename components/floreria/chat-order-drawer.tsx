@@ -10,13 +10,9 @@ import {
   Trash2,
   Receipt,
   Search,
-  MessageSquare,
   User,
-  Bot,
-  Copy,
   Truck,
   Store,
-  Info
 } from "lucide-react";
 import { createOrderWithRecipeAction } from "@/app/actions/omnichannel";
 import { createUnifiedTicketAction } from "@/app/actions/logistics";
@@ -124,7 +120,6 @@ export default function ChatOrderDrawer({
   const [salePrice, setSalePrice] = useState<number | string>("");
   const [deliveryFee, setDeliveryFee] = useState<number | string>(0);
   const [paymentMethod, setPaymentMethod] = useState<"Efectivo" | "QR" | "Tarjeta">("Efectivo");
-  const [mobileTab, setMobileTab] = useState<"form" | "chat">("form");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,12 +210,6 @@ export default function ChatOrderDrawer({
   const netMargin = grandTotal - totalMaterialCost;
   const marginPercentage = grandTotal > 0 ? (netMargin / grandTotal) * 100 : 0;
 
-
-  const copyTextToDedication = (text: string) => {
-    setDedicationMessage(text);
-    toast.info("Texto copiado a la dedicatoria");
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (deliveryType === "delivery" && (!address.trim() || address === "Retiro en Tienda / Local")) {
@@ -289,145 +278,31 @@ export default function ChatOrderDrawer({
 
   return (
     <div className="fixed inset-0 z-50 bg-warm-900/60 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto" role="dialog" aria-modal="true">
-      <div className="bg-white w-full max-w-4xl max-h-[92dvh] sm:max-h-[88dvh] shadow-2xl rounded-2xl sm:rounded-3xl overflow-hidden flex flex-col md:flex-row border border-warm-200 animate-in zoom-in-95 duration-200 my-auto">
+      <div className="bg-white w-full max-w-2xl max-h-[90dvh] shadow-2xl rounded-2xl sm:rounded-3xl overflow-hidden flex flex-col border border-warm-200 animate-in zoom-in-95 duration-200 my-auto">
         
-        {/* Mobile Tab Switcher */}
-        <div className="flex md:hidden items-center justify-between p-2.5 bg-warm-100 border-b border-warm-200 shrink-0">
-          <div className="inline-flex p-0.5 bg-white rounded-xl border border-warm-200 flex-1 mr-2">
-            <button
-              type="button"
-              onClick={() => setMobileTab("form")}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                mobileTab === "form" ? "bg-terracotta-500 text-white shadow-xs" : "text-warm-600"
-              }`}
-            >
-              <Receipt className="h-3.5 w-3.5" />
-              <span>Formulario</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileTab("chat")}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                mobileTab === "chat" ? "bg-terracotta-500 text-white shadow-xs" : "text-warm-600"
-              }`}
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              <span>Chat ({messages.length})</span>
-            </button>
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-warm-200 bg-warm-50/50 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-terracotta-100 text-terracotta-600 rounded-xl">
+              <Receipt className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm sm:text-base text-warm-900">Emisión de Ticket Manual con Receta</h3>
+              <p className="text-[11px] text-warm-500">Descuenta inventario en vivo y registra el pedido en POS y Logística.</p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-warm-500 hover:text-warm-900 rounded-lg shrink-0"
+            className="p-1.5 text-warm-400 hover:text-warm-700 rounded-xl hover:bg-warm-100 transition-colors"
             aria-label="Cerrar modal"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* LEFT COLUMN: Live Chat Stream View */}
-        <div className={`w-full md:w-5/12 max-h-[88dvh] bg-warm-50 border-r border-warm-200 flex-col overflow-hidden ${
-          mobileTab === "chat" ? "flex" : "hidden md:flex"
-        }`}>
-          <div className="p-4 bg-white border-b border-warm-200 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-terracotta-600" />
-              <div>
-                <h4 className="font-bold text-xs text-warm-900">Conversación de Origen</h4>
-                <p className="text-[10px] text-warm-500">{clientName} ({channel})</p>
-              </div>
-            </div>
-            <span className="px-2 py-0.5 text-[9px] font-bold bg-terracotta-100 text-terracotta-800 rounded-full">
-              {messages.length} mensajes
-            </span>
-          </div>
-
-          {/* Messages Stream */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-3 min-h-0">
-            {messages.length === 0 ? (
-              <div className="py-12 text-center text-xs text-warm-400">
-                No hay mensajes previos en este chat.
-              </div>
-            ) : (
-              messages.map((msg, index) => (
-                <div
-                  key={msg.id || index}
-                  className={`flex flex-col space-y-1 ${
-                    msg.sender === "customer"
-                      ? "items-start"
-                      : "items-end"
-                  }`}
-                >
-                  <div className="flex items-center gap-1 text-[9px] text-warm-400 font-semibold px-1">
-                    {msg.sender === "customer" ? (
-                      <>
-                        <User className="h-3 w-3 text-warm-500" />
-                        <span>{clientName}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Bot className="h-3 w-3 text-terracotta-500" />
-                        <span>Florería Farfalina</span>
-                      </>
-                    )}
-                  </div>
-
-                  <div
-                    className={`group relative p-3 rounded-2xl text-xs leading-relaxed max-w-[90%] ${
-                      msg.sender === "customer"
-                        ? "bg-white text-warm-900 border border-warm-200 rounded-tl-none shadow-2xs"
-                        : "bg-terracotta-500 text-white rounded-tr-none shadow-2xs"
-                    }`}
-                  >
-                    <p>{msg.text}</p>
-                    
-                    {/* Copy to dedication helper button for customer messages */}
-                    {msg.sender === "customer" && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          copyTextToDedication(msg.text);
-                          setMobileTab("form");
-                        }}
-                        className="mt-1.5 pt-1 border-t border-warm-100 text-[10px] text-terracotta-700 font-bold hover:underline flex items-center gap-1"
-                        title="Usar como mensaje de dedicatoria"
-                      >
-                        <Copy className="h-3 w-3" />
-                        Usar como dedicatoria
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="p-3 bg-white border-t border-warm-200 text-[10px] text-warm-500 text-center shrink-0 flex items-center justify-center gap-1.5">
-            <Info className="h-3.5 w-3.5 text-warm-400" />
-            <span>Haz clic en <strong>"Usar como dedicatoria"</strong> en cualquier mensaje para copiarlo.</span>
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: Ticket Creation Form */}
-        <div className={`w-full md:w-7/12 max-h-[88dvh] flex-col overflow-y-auto p-4 sm:p-5 space-y-4 bg-white ${
-          mobileTab === "form" ? "flex" : "hidden md:flex"
-        }`}>
-          {/* Header */}
-          <div className="hidden md:flex items-center justify-between pb-3 border-b border-warm-200">
-            <div className="flex items-center gap-2">
-              <Receipt className="h-5 w-5 text-terracotta-600" />
-              <div>
-                <h3 className="font-bold text-sm text-warm-900">Emisión de Ticket desde Chat</h3>
-                <p className="text-[11px] text-warm-500">Completa los datos extraídos de la conversación.</p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 text-warm-400 hover:text-warm-700 rounded-xl hover:bg-warm-100 transition-colors"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
+        {/* Form Body Container */}
+        <div className="w-full flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 bg-white">
 
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-semibold">
