@@ -1,0 +1,48 @@
+﻿======================================================================
+  🌸 GUÍA DE USO LOCAL - FLORERÍA FARFALINA & CARISSMA VESTIDOS 🌸
+======================================================================
+
+¡Bienvenido! Este paquete contiene el sistema completo listo para
+funcionar de manera 100% independiente y segura en tu laptop.
+
+----------------------------------------------------------------------
+📋 REQUISITO ÚNICO (Solo si es la primera vez):
+----------------------------------------------------------------------
+Tener instalado Node.js LTS en la laptop:
+👉 Descargar gratis desde: https://nodejs.org/ (Botón "LTS")
+(La instalación de Node.js toma menos de 1 minuto: Siguiente, Siguiente, Finalizar).
+
+----------------------------------------------------------------------
+🚀 CÓMO USAR EL SISTEMA DÍA A DÍA:
+----------------------------------------------------------------------
+1. Haz doble clic en el archivo:
+   👉 INICIAR_FARFALINA.bat
+
+2. Se abrirá una ventana negra que inicia el servidor y, en 2 segundos,
+   se abrirá automáticamente tu navegador (Chrome o Edge) en:
+   http://localhost:3000
+
+3. ¡Listo! Puedes cobrar en caja (POS), consultar los 34 insumos en
+   inventario, gestionar pedidos, alquilar vestidos y ver reportes.
+
+4. Al terminar tu jornada de trabajo, simplemente cierra la ventana.
+
+----------------------------------------------------------------------
+💾 CÓMO SACAR COPIAS DE SEGURIDAD DE TUS DATOS:
+----------------------------------------------------------------------
+- Haz doble clic en:
+  👉 RESPALDAR_BASE_DE_DATOS.bat
+- Creará una copia exacta de todas tus ventas, stock y clientes
+  en la carpeta "Respaldos" con la fecha y hora actual.
+- Puedes copiar esa carpeta a una memoria USB cuando quieras.
+
+----------------------------------------------------------------------
+🌐 ACCESO DESDE CELULARES / TABLETS EN EL LOCAL (Opcional):
+----------------------------------------------------------------------
+Si tu laptop y tus celulares están conectados al mismo WiFi del local:
+1. Averigua la IP de tu laptop (ejemplo: 192.168.1.50).
+2. Desde el celular o tablet en el navegador abre:
+   http://192.168.1.50:3000
+3. ¡Podrás usar el punto de venta y pedidos desde el celular!
+
+======================================================================

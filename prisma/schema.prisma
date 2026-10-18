@@ -1,0 +1,424 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model RawIngredient {
+  id               String                 @id @default(cuid())
+  name             String
+  type             String                 // Flor, Follaje, Base/Jarrón, Accesorio
+  available        Int                    @default(0)
+  unit             String                 // tallos, ramitas, piezas, metros
+  warningThreshold Int                    @default(15)
+  costPerUnit      Float                  @default(5.0)
+  entryDate        DateTime               @default(now())
+  shelfLifeDays    Int?                   @default(7)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  mermaLogs        MermaLog[]
+  recipeItems      ArrangementRecipeItem[]
+  orderRecipeItems OrderRecipeItem[]
+}
+
+model Arrangement {
+  id          String                  @id @default(cuid())
+  name        String
+  category    String                  // Rosas, Girasoles, Arreglos Mixtos, Insumos & Jarrones
+  price       Float
+  featured    Boolean                 @default(false)
+  image       String
+  description String
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  recipeItems ArrangementRecipeItem[]
+}
+
+model ArrangementRecipeItem {
+  id              String        @id @default(cuid())
+  arrangementId   String
+  rawIngredientId String
+  quantityNeeded  Int           @default(1)
+  arrangement     Arrangement   @relation(fields: [arrangementId], references: [id], onDelete: Cascade)
+  rawIngredient   RawIngredient @relation(fields: [rawIngredientId], references: [id], onDelete: Cascade)
+}
+
+model POSTicket {
+  id             String          @id @default(cuid())
+  ticketNumber   String          @unique
+  customerName   String?
+  customerPhone  String?
+  totalAmount    Float
+  discountAmount Float           @default(0)
+  paymentMethod  String          @default("Efectivo") // Efectivo, QR, Tarjeta
+  createdAt      DateTime        @default(now())
+  ticketItems    POSTicketItem[]
+}
+
+model POSTicketItem {
+  id       String    @id @default(cuid())
+  ticketId String
+  itemName String
+  price    Float
+  quantity Int
+  ticket   POSTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+}
+
+model CashRegisterShift {
+  id             String    @id @default(cuid())
+  shiftDate      String
+  cashierName    String    @default("Agente de Turno")
+  openingBalance Float     @default(300.0)
+  closingBalance Float?
+  status         String    @default("Open") // Open, Closed
+  totalSalesCash Float     @default(0.0)
+  totalSalesQR   Float     @default(0.0)
+  totalSalesCard Float     @default(0.0)
+  totalExpenses  Float     @default(0.0)
+  declaredCash   Float?
+  discrepancy    Float?
+  notes          String?
+  closedAt       DateTime?
+  createdAt      DateTime  @default(now())
+}
+
+model MermaLog {
+  id              String        @id @default(cuid())
+  rawIngredientId String
+  quantityLost    Int
+  reason          String        // Marchitamiento, Daño Transporte, Defecto
+  createdAt       DateTime      @default(now())
+  rawIngredient   RawIngredient @relation(fields: [rawIngredientId], references: [id], onDelete: Cascade)
+}
+
+model ChatThread {
+  id            String        @id @default(cuid())
+  clientName    String
+  phone         String
+  channel       String        // WhatsApp, Facebook, TikTok, Instagram
+  status        String        @default("Por Responder") // Pendiente, Por Responder, Archivados
+  lastMessage   String
+  assignedAgent String        @default("Agente General")
+  profilePicUrl String?       // URL de foto de perfil del contacto (WhatsApp / Instagram)
+  environment   String        @default("farfalina")
+  lastMessageAt DateTime?
+  externalId    String?       // Meta mailbox ID, PSID o ID externo de sincronización
+  rawTimestamp  String?       // Marca temporal cruda de Meta ("10:45 AM", "Ayer", etc.)
+  unreadCount   Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  messages      ChatMessage[]
+
+  @@unique([channel, phone, environment], name: "chatthread_tenant_unique")
+  @@index([environment, status])
+}
+
+model ChatMessage {
+  id           String     @id @default(cuid())
+  threadId     String
+  sender       String     // customer, bot, agent
+  text         String
+  mediaUrl     String?    // Ruta al archivo multimedia descargado
+  mediaType    String?    // image, video, audio, document, sticker
+  environment  String     @default("farfalina")
+  externalId   String?    // ID único de mensaje de Meta o WhatsApp
+  rawTimestamp String?    // Timestamp original legible ("10:45 AM", "Ayer", etc.)
+  timestamp    DateTime?  // Timestamp normalizado monótono
+  createdAt    DateTime   @default(now())
+  thread       ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, environment, id], name: "chatmessage_tenant_unique")
+  @@index([threadId, createdAt])
+  @@index([threadId, externalId])
+}
+
+model OrderDelivery {
+  id                String            @id @default(cuid())
+  orderNumber       String            @unique
+  clientName        String
+  clientPhone       String?
+  recipientName     String
+  address           String
+  zone              String
+  deliveryDate      DateTime
+  deliveryTime      String
+  status            String            @default("En preparación") // En preparación, En camino, Entregado
+  arrangementName   String
+  salePrice         Float             @default(0.0)
+  deliveryFee       Float             @default(0.0)
+  total             Float
+  paymentMethod     String            @default("Efectivo") // Efectivo, QR, Tarjeta
+  dedicationMessage String
+  createdAt         DateTime          @default(now())
+  recipeItems       OrderRecipeItem[]
+}
+
+model OrderRecipeItem {
+  id              String        @id @default(cuid())
+  orderId         String
+  rawIngredientId String
+  quantityNeeded  Int           @default(1)
+  unitCost        Float         @default(0.0)
+  order           OrderDelivery @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rawIngredient   RawIngredient @relation(fields: [rawIngredientId], references: [id], onDelete: Cascade)
+}
+
+model CRMClient {
+  id             String            @id @default(cuid())
+  name           String
+  phone          String            @unique
+  favoriteFlower String?
+  notes          String?
+  totalSpent     Float             @default(0.0)
+  purchaseCount  Int               @default(0)
+  loyaltyTier    String            @default("Bronce") // Bronce, Plata, Oro, Platino
+  lastPurchaseAt DateTime?
+  createdAt      DateTime          @default(now())
+  events         CRMSpecialEvent[]
+  campaigns      ContentCampaign[]
+}
+
+model CRMSpecialEvent {
+  id          String     @id @default(cuid())
+  clientId    String?
+  title       String
+  eventType   String     // Aniversario, Cumpleaños, Evento Estacional, Campaña Marketing
+  eventDate   DateTime
+  description String?
+  promo       String?
+  client      CRMClient? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model ContentCampaign {
+  id               String      @id @default(cuid())
+  title            String      // Título o resumen de la pieza
+  funnelStage      String      // Descubrimiento/Conciencia, Consideración/Interés, Conversión/Acción, Fidelización
+  socialNetwork    String      // Instagram, Facebook, TikTok, WhatsApp, Otra
+  format           String      // Post, Reel, Story, Live, Ads, Colaboración
+  summary          String?     // Resumen, Guión, Concepto o Copia
+  cost             Float?      @default(0.0) // Inversión en Ads o Influencer
+  results          String?     // Resultados / Métricas a posteriori
+  viewsCount       Int?        @default(0)
+  conversionsCount Int?        @default(0)
+  startDate        DateTime    // Fecha de inicio
+  endDate          DateTime    // Fecha de fin
+  durationDays     Int         @default(1)
+  responsible      String      // Persona o creador/influencer a cargo
+  color            String      @default("#E07A5F") // Color para resaltar en calendario (#3B82F6, #10B981, #E07A5F, #8B5CF6, etc.)
+  status           String      @default("Planificado") // Planificado, En Producción, Publicado, Concluido
+  clientId         String?     // Vinculación opcional a cliente/influencer
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  client           CRMClient?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+}
+
+model LoyaltyConfig {
+  id          String   @id @default("default")
+  targetCount Int      @default(5) // Meta de compras para recompensa (ej: 5 compras)
+  rewardText  String   @default("1 Ramo Gratis") // Beneficio al alcanzar la meta
+  minSpent    Float    @default(0.0) // Gasto mínimo acumulado requerido (opcional)
+  updatedAt   DateTime @updatedAt
+}
+
+
+model Dress {
+  id                String          @id @default(cuid())
+  name              String
+  brand             String
+  size              String          // XS, S, M, L, XL
+  category          String?         @default("Gala") // Gala, Novia, Quinceañera, Coctel, Graduación
+  imageUrl          String?         // URL foto de la prenda
+  baseRentalPrice   Float           @default(450.0) // Precio base de renta
+  acquisitionCost   Float
+  timesUsed         Int             @default(0)
+  condition         String          @default("Excelente") // Excelente, Bueno, Requiere Mantenimiento
+  requiredGuarantee Float
+  status            String          @default("Disponible") // Disponible, Reservado, En Uso, En Lavandería
+  color             String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  bookings          RentalBooking[]
+}
+
+model RentalBooking {
+  id               String              @id @default(cuid())
+  contractNumber   String              @unique
+  clientName       String
+  clientPhone      String?
+  dressId          String
+  dressName        String
+  dressSize        String
+  dressColor       String
+  rentalStartDate  DateTime
+  rentalEndDate    DateTime
+  actualReturnDate DateTime?
+  rentalPrice      Float
+  guaranteeAmount  Float
+  penaltyFee       Float               @default(0.0)
+  paymentMethod    String              @default("Efectivo") // Efectivo, QR, Tarjeta
+  rentalStatus     String              @default("Reservado") // Reservado, En Prueba, Entregado, Devuelto / Revisión, En Lavandería, Finalizado
+  guaranteeStatus  String              @default("En Custodia") // En Custodia, Devuelta, Retenida Parcial, Retenida Total
+  notes            String?
+  shiftId          String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  dress            Dress               @relation(fields: [dressId], references: [id], onDelete: Cascade)
+  shift            CarissmaCashShift?  @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+}
+
+model CarissmaCashShift {
+  id                        String           @id @default(cuid())
+  shiftDate                 String
+  cashierName               String           @default("Agente Carissma")
+  openingBalance            Float            @default(300.0)
+  closingBalance            Float?
+  status                    String           @default("Open") // Open, Closed
+  totalSalesCash            Float            @default(0.0)
+  totalSalesQR              Float            @default(0.0)
+  totalSalesCard            Float            @default(0.0)
+  totalGuaranteesInCustody  Float            @default(0.0)
+  totalGuaranteesReturned   Float            @default(0.0)
+  totalPenalties            Float            @default(0.0)
+  totalExpenses             Float            @default(0.0)
+  declaredCash              Float?
+  discrepancy               Float?
+  notes                     String?
+  closedAt                  DateTime?
+  createdAt                 DateTime         @default(now())
+  bookings                  RentalBooking[]
+  expenses                  CarissmaExpense[]
+}
+
+model CarissmaExpense {
+  id          String              @id @default(cuid())
+  shiftId     String?
+  category    String              // Tintorería/Lavandería, Modistería/Arreglos, Bolsas/Empaques, Accesorios, Servicios, Otros
+  amount      Float
+  description String
+  expenseDate DateTime            @default(now())
+  createdAt   DateTime            @default(now())
+  shift       CarissmaCashShift?  @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+}
+
+model CarissmaConfig {
+  id                     String   @id @default("default")
+  defaultRentalDays      Int      @default(3)
+  defaultGuaranteePercent Float   @default(30.0)
+  decayRatePerUsage      Float    @default(5.0) // % de reducción por uso
+  minPriceFloorPercent   Float    @default(40.0) // Piso mínimo % sobre precio base
+  lateFeePerDay          Float    @default(50.0) // Penalización diaria por retraso en Bs
+  updatedAt              DateTime @updatedAt
+}
+
+model ChannelConfig {
+  id                   String    @id @default(cuid())
+  channel              String    // WhatsApp, Facebook, Instagram, TikTok
+  environment          String    @default("farfalina") // farfalina, carissma
+  status               String    @default("DISCONNECTED") // CONNECTED, DISCONNECTED, QR_READY
+  qrCodeData           String?   // Real scannable Base64/PNG Data URL QR (Legacy)
+  whatsappPhoneNumberId String?  // ID de Número de Teléfono (Meta WhatsApp Cloud API)
+  whatsappWabaId        String?  // ID de Cuenta de WhatsApp Business (WABA ID)
+  whatsappAccessToken   String?  // Token Permanente de Acceso Meta (System User Token)
+  whatsappBusinessPhone String?  // Número visible de WhatsApp (ej: +591 70000000)
+  facebookPageToken    String?   // Token FanPage Facebook Messenger
+  facebookPageId       String?   // ID de Página Facebook
+  instagramAccessToken String?   // Token de Acceso Instagram Direct
+  instagramAccountId   String?   // ID de Cuenta de Instagram Business
+  tiktokAppId          String?   // TikTok Client App ID
+  tiktokAccessToken    String?   // TikTok User Access Token
+  tiktokOpenId         String?   // TikTok User Open ID
+  verifyToken          String?   // Webhook Verification Token
+  lastSyncAt           DateTime?
+  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime  @default(now())
+
+  @@unique([channel, environment], name: "channel_tenant_unique")
+}
+
+model FinancialExpense {
+  id          String   @id @default(cuid())
+  category    String   // Luz/Servicios, Sueldos, Gastos Administrativos, Insumos/Proveedores, Otros
+  amount      Float
+  description String
+  expenseDate DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
+
+model QuickReply {
+  id        String   @id @default(cuid())
+  title     String   // Título o atajo ej: "Catálogo Farfalina 2026"
+  category  String   @default("General") // General, Catálogo, Pagos, Envíos, Saludos
+  text      String   // Mensaje de respuesta rápida
+  mediaUrl  String?  // URL del documento o imagen adjunta
+  mediaName String?  // Nombre original del archivo (ej: Catalogo.pdf)
+  mediaType String?  // document, image, audio
+  shortcut  String?  // Atajo opcional ej: "/catalogo"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RelayOutboundQueue {
+  id          String    @id @default(cuid())
+  threadId    String
+  messageId   String?
+  channel     String    // Facebook, Instagram
+  clientName  String?
+  phone       String?   // Recipient ID or thread phone
+  text        String
+  mediaUrl    String?
+  environment String    @default("farfalina") // farfalina, carissma
+  status      String    @default("PENDING") // PENDING, SENT, DELIVERED, FAILED
+  error       String?
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([environment, status])
+}
+
+model InstagramPost {
+  id            String             @id @default(cuid())
+  instagramId   String             @unique // ID del Media en Meta Graph API (ej: 17901234567890123)
+  caption       String?
+  mediaType     String?            // IMAGE, VIDEO, CAROUSEL_ALBUM, REELS
+  mediaUrl      String?            // URL del medio o imagen cacheada
+  thumbnailUrl  String?            // Miniatura para videos o reels
+  permalink     String?            // Enlace directo en instagram.com
+  commentsCount Int                @default(0)
+  likeCount     Int                @default(0)
+  timestamp     DateTime?          // Fecha original de publicación en Instagram
+  environment   String             @default("farfalina") // farfalina, carissma
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  comments      InstagramComment[]
+
+  @@index([environment, createdAt])
+}
+
+model InstagramComment {
+  id                 String             @id @default(cuid())
+  instagramId        String             @unique // ID del comentario en Meta Graph API
+  postId             String             // Relación con InstagramPost
+  text               String
+  fromId             String?            // IGSID del autor del comentario
+  fromUsername       String?            // Handle @username del autor
+  userProfilePic     String?            // Avatar resuelto y cacheado localmente
+  parentId           String?            // ID de comentario padre si es respuesta anidada
+  isReply            Boolean            @default(false)
+  isPrivateReplySent Boolean            @default(false) // Bandera de Private Reply enviado
+  privateReplyText   String?            // Registro del texto enviado por DM
+  environment        String             @default("farfalina")
+  timestamp          DateTime?          @default(now())
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  post               InstagramPost      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  replies            InstagramComment[] @relation("CommentReplies")
+  parent             InstagramComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt])
+  @@index([environment, createdAt])
+  @@index([fromId])
+}
+

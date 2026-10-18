@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+.next/
+tsconfig.tsbuildinfo
+
+# Deploy artifacts
+*.tar.gz
+*.zip
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+dev.db
+prisma/*.db
+prisma/*.db-journal
+
+# WhatsApp sessions and cache
+wwebjs_auth/
+.wwebjs_cache/
+bailey_auth_info/
+baileys_auth_info/
+baileys_auth/
+
+# Backups
+Respaldos/
+backup/
+backups/
+
+# Environment
+.env
+.env.local
+.env.production
+.env*.local
+
+# IDE / Tool configs
+.windsurf/
+.claude/
+
+# Temporary scratch scripts
+fix*.js
+refactor.js
+
+# OS
+.DS_Store
+Thumbs.db

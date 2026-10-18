@@ -1,0 +1,59 @@
+{
+  "manifest_version": 3,
+  "name": "Farfalina & Carissma - Meta Relay Bridge & Embedder",
+  "version": "1.2.0",
+  "description": "Desbloqueador de iframe e integración local en vivo entre Meta Business Suite y el CRM Florería Farfalina & Carissma.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "alarms",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "https://*.facebook.com/*",
+    "https://*.messenger.com/*",
+    "https://*.instagram.com/*",
+    "https://*.fbcdn.net/*",
+    "https://*.cdninstagram.com/*",
+    "https://*.fbsbx.com/*",
+    "http://localhost/*",
+    "http://localhost:*/*",
+    "http://127.0.0.1/*",
+    "http://127.0.0.1:*/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Farfalina & Carissma - Meta Hub"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://business.facebook.com/latest/inbox/*",
+        "https://business.facebook.com/*",
+        "https://web.facebook.com/latest/inbox/*",
+        "https://web.facebook.com/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

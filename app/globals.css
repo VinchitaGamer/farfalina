@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 30% 97%;
+    --foreground: 20 15% 15%;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-top: env(safe-area-inset-top, 0px);
+  }
+
+  body {
+    background-color: #FAF7F2;
+    color: #2B2625;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media (max-width: 767px) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea {
+      font-size: 16px !important;
+      min-height: 44px !important;
+    }
+
+    button,
+    [role="button"] {
+      min-width: 44px !important;
+      min-height: 44px !important;
+    }
+  }
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  }
+  .pt-safe {
+    padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+  }
+}
+
+/* Custom warm scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F5F0EB;
+}
+::-webkit-scrollbar-thumb {
+  background: #BEA993;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C86D51;
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid #EAE3D9;
+}
+
+.card-warm {
+  background: #FFFFFF;
+  border: 1px solid #EAE3D9;
+  box-shadow: 0 4px 20px -2px rgba(180, 120, 90, 0.08);
+  border-radius: 12px;
+  transition: all 0.2s ease-in-out;
+}
+
+.card-warm:hover {
+  box-shadow: 0 8px 30px -4px rgba(180, 120, 90, 0.14);
+}
+
+/* Disable spin buttons / arrows on all numeric inputs globally */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+input[type="number"] {
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
+}
+
+/* Global Print Stylesheet for clean 1-page document printing */
+@media print {
+  @page {
+    size: letter portrait;
+    margin: 6mm 10mm;
+  }
+
+  /* Reset html & body for natural document flow */
+  html, body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* When a printable modal portal is active on body, hide all background sibling elements */
+  body:has(#printable-modal-portal) > *:not(#printable-modal-portal) {
+    display: none !important;
+  }
+
+  /* Hide header, navigation, sidebar, and background website layout */
+  header,
+  nav,
+  aside,
+  footer,
+  .print\:hidden,
+  .print-hide,
+  .no-print,
+  [role="navigation"] {
+    display: none !important;
+  }
+
+  /* Ensure modal portal flows naturally on paper */
+  #printable-modal-portal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #FFFFFF !important;
+    overflow: visible !important;
+  }
+
+  #printable-modal-portal .fixed,
+  #printable-modal-portal [role="dialog"] {
+    position: static !important;
+    inset: auto !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  #printable-modal-portal .bg-white {
+    max-height: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    background: #FFFFFF !important;
+  }
+}
+
