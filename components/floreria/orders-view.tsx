@@ -71,8 +71,8 @@ export default function OrdersView() {
   const [mobileKanbanStage, setMobileKanbanStage] = useState<"En preparación" | "En camino" | "Entregado">("En preparación");
 
   // Month navigation for Monthly Calendar
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 7, 1)); // August 2026
-  const [selectedMobileDay, setSelectedMobileDay] = useState(1);
+  const [currentDate, setCurrentDate] = useState(() => new Date());
+  const [selectedMobileDay, setSelectedMobileDay] = useState(() => new Date().getDate());
 
   useEffect(() => {
     loadOrders();
@@ -134,6 +134,11 @@ export default function OrdersView() {
     setCurrentDate(new Date(year, month + 1, 1));
     setSelectedMobileDay(1);
   };
+  const goToToday = () => {
+    const now = new Date();
+    setCurrentDate(now);
+    setSelectedMobileDay(now.getDate());
+  };
 
   const monthNames = [
     "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -158,7 +163,7 @@ export default function OrdersView() {
   );
 
   // Helper filters for Agenda View
-  const todayRef = new Date(2026, 7, 5); // Reference Today date in demo: Aug 5, 2026
+  const todayRef = new Date();
 
   const filteredAgendaOrders = orders.filter((o) => {
     const d = new Date(o.deliveryDate);
@@ -267,6 +272,14 @@ export default function OrdersView() {
               </div>
 
               <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={goToToday}
+                  className="min-h-[44px] px-3 py-2 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-xl text-xs font-bold transition-colors active:scale-95 touch-manipulation"
+                  title="Ir al mes y día de hoy"
+                >
+                  Hoy
+                </button>
                 <button
                   onClick={prevMonth}
                   className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-xl transition-colors active:scale-95 touch-manipulation"

@@ -76,7 +76,7 @@ export default function CrmView() {
   const [loading, setLoading] = useState(true);
 
   // Month navigation for Monthly Calendar
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 7, 1)); // August 2026
+  const [currentDate, setCurrentDate] = useState(() => new Date());
 
   // Selected Campaign to highlight range of days in calendar
   const [selectedCampaign, setSelectedCampaign] = useState<ContentCampaignItem | null>(null);

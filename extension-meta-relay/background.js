@@ -2,7 +2,7 @@
 // Farfalina & Carissma Meta Relay Bridge
 
 const DEFAULT_CONFIG = {
-  serverUrl: "http://localhost:3000",
+  serverUrl: "https://farfalina.tech",
   environmentOverride: "auto", // 'auto' | 'farfalina' | 'carissma'
   isEnabled: true,
   stats: {

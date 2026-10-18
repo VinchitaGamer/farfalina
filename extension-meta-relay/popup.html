@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Farfalina Relay</title>
+  <title>Farfalina & Carissma Relay</title>
   <style>
     * {
       box-sizing: border-box;
@@ -76,26 +76,26 @@
     select:focus, input[type="text"]:focus {
       border-color: #e2553d;
     }
-    .stats-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
+    .presets-row {
+      display: flex;
+      gap: 4px;
       margin-top: 6px;
     }
-    .stat-box {
-      background: #f4f4f5;
-      padding: 8px;
-      border-radius: 8px;
-      text-align: center;
-    }
-    .stat-val {
-      font-size: 16px;
-      font-weight: 700;
-      color: #18181b;
-    }
-    .stat-lbl {
+    .preset-btn {
+      flex: 1;
+      padding: 4px 6px;
       font-size: 10px;
-      color: #71717a;
+      font-weight: 600;
+      background: #f4f4f5;
+      border: 1px solid #e4e4e7;
+      border-radius: 6px;
+      cursor: pointer;
+      color: #52525b;
+      transition: all 0.15s;
+    }
+    .preset-btn:hover {
+      background: #e4e4e7;
+      color: #18181b;
     }
     .btn {
       display: block;
@@ -132,6 +132,16 @@
       justify-content: space-between;
       margin-bottom: 8px;
     }
+    .info-box {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 11px;
+      color: #9a3412;
+      line-height: 1.4;
+      margin-bottom: 12px;
+    }
     .footer-text {
       font-size: 10px;
       color: #a1a1aa;
@@ -162,41 +172,26 @@
   </div>
 
   <div class="card">
-    <label class="field-label">Servidor Local</label>
+    <label class="field-label">Servidor del Sistema</label>
     <div style="display: flex; gap: 6px;">
-      <input type="text" id="serverUrl" value="http://localhost:3000">
+      <input type="text" id="serverUrl" value="https://farfalina.tech" placeholder="https://farfalina.tech">
       <button id="btnSaveUrl" class="btn btn-secondary" style="width: auto; padding: 6px 10px;">Guardar</button>
     </div>
-  </div>
-
-  <div class="card">
-    <span class="field-label">Actividad Sincronizada</span>
-    <div class="stats-row">
-      <div class="stat-box">
-        <div id="statInbound" class="stat-val">0</div>
-        <div class="stat-lbl">Entrantes</div>
-      </div>
-      <div class="stat-box">
-        <div id="statOutbound" class="stat-val">0</div>
-        <div class="stat-lbl">Enviados</div>
-      </div>
-    </div>
-    <div style="font-size: 10px; color: #71717a; margin-top: 6px; text-align: center;">
-      Última actividad: <span id="lastSync">Nunca</span>
+    <div class="presets-row">
+      <button class="preset-btn" data-url="https://farfalina.tech">farfalina.tech</button>
+      <button class="preset-btn" data-url="https://farfalina.netlify.app">Netlify</button>
+      <button class="preset-btn" data-url="http://localhost:3000">Local :3000</button>
     </div>
   </div>
 
-  <button id="btnDeepSync" class="btn btn-primary" style="background: #2563eb; margin-bottom: 6px; font-weight: 700;">🚀 Sincronización Total (Deep Sync)</button>
-  <button id="btnSyncActiveChat" class="btn btn-primary" style="background: #0d9488; margin-bottom: 6px;">🔄 Sincronizar Chat Abierto</button>
-  <button id="btnSyncNow" class="btn btn-secondary" style="margin-bottom: 6px;">⚡ Sincronizar Contactos Rápidos</button>
+  <div class="info-box">
+    💡 <b>Barra Inteligente Activa:</b> En Meta Business Suite, la barra flotante captura automáticamente el nombre y teléfono/perfil del chat abierto (WhatsApp, Instagram o Messenger) para emitir Pedidos y Reservas en 1 clic.
+  </div>
+
   <button id="btnOpenInbox" class="btn btn-primary" style="background: #e2553d; margin-bottom: 6px;">Abrir Meta Business Suite</button>
   <button id="btnCheckStatus" class="btn btn-secondary">Comprobar Conexión</button>
 
-  <p id="crawlerStatusText" style="display: none; font-size: 11px; color: #2563eb; font-weight: 600; text-align: center; margin-top: 8px;">
-    Deep Sync en curso...
-  </p>
-
-  <p class="footer-text">Manifest V3 · Localhost Bridge Farfalina & Carissma</p>
+  <p class="footer-text">v1.3.0 · Farfalina & Carissma Meta Relay</p>
 
   <script src="popup.js"></script>
 </body>
