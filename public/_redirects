@@ -1,0 +1,3 @@
+# Redirección 301 forzada de farfalina.netlify.app al dominio principal farfalina.tech
+https://farfalina.netlify.app/* https://farfalina.tech/:splat 301!
+http://farfalina.netlify.app/* https://farfalina.tech/:splat 301!

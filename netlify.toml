@@ -8,6 +8,19 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Redirección canónica permanente (301) de netlify.app hacia el dominio principal farfalina.tech
+[[redirects]]
+  from = "https://farfalina.netlify.app/*"
+  to = "https://farfalina.tech/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://farfalina.netlify.app/*"
+  to = "https://farfalina.tech/:splat"
+  status = 301
+  force = true
+
 [[headers]]
   for = "/api/*"
   [headers.values]

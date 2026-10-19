@@ -46,54 +46,68 @@ export default function OmnichannelRedirectView({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => openMetaBusinessSuite(environment)}
-            className={`min-h-11 px-5 py-2.5 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 touch-manipulation ${
-              isTerra
-                ? "bg-terracotta-600 hover:bg-terracotta-700 shadow-terracotta-500/20"
-                : "bg-amberGold-600 hover:bg-amberGold-700 shadow-amberGold-500/20"
-            }`}
-          >
-            <Globe className="h-4 w-4" />
-            <span>Abrir Meta Business Suite</span>
-            <ExternalLink className="h-4 w-4 opacity-80" />
-          </button>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <a
+              href="https://omnichannel.farfalina.tech"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="min-h-11 px-4 py-2.5 bg-warm-900 hover:bg-black text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 touch-manipulation"
+            >
+              <Globe className="h-4 w-4 text-emerald-400" />
+              <span>Abrir Omnicanal (Túnel Cloudflare)</span>
+              <ExternalLink className="h-4 w-4 opacity-80" />
+            </a>
+            <button
+              type="button"
+              onClick={() => openMetaBusinessSuite(environment)}
+              className={`min-h-11 px-5 py-2.5 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 touch-manipulation ${
+                isTerra
+                  ? "bg-terracotta-600 hover:bg-terracotta-700 shadow-terracotta-500/20"
+                  : "bg-amberGold-600 hover:bg-amberGold-700 shadow-amberGold-500/20"
+              }`}
+            >
+              <Globe className="h-4 w-4" />
+              <span>Abrir Meta Business Suite</span>
+              <ExternalLink className="h-4 w-4 opacity-80" />
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-warm-50/80 rounded-2xl p-5 border border-warm-200/80 space-y-3">
+            <h3 className="font-bold text-sm text-warm-900 flex items-center gap-2">
+              <Globe className="h-4 w-4 text-emerald-600" />
+              Túnel Cloudflare Omnicanal
+            </h3>
+            <p className="text-xs text-warm-600 leading-relaxed">
+              El servidor local de WhatsApp (Baileys) y webhooks está expuesto de forma segura bajo el dominio{" "}
+              <strong className="text-warm-900">https://omnichannel.farfalina.tech</strong> a través de Cloudflare Zero Trust Tunnel.
+            </p>
+            <div className="pt-2 flex items-center gap-2 text-[11px] font-semibold text-emerald-700">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <a
+                href="https://omnichannel.farfalina.tech"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline flex items-center gap-1 font-bold"
+              >
+                <span>Acceder a omnichannel.farfalina.tech</span>
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+          </div>
+
           <div className="bg-warm-50/80 rounded-2xl p-5 border border-warm-200/80 space-y-3">
             <h3 className="font-bold text-sm text-warm-900 flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-amber-500" />
               Gestión desde la Extensión Oficial
             </h3>
             <p className="text-xs text-warm-600 leading-relaxed">
-              Los chats de <strong>WhatsApp, Instagram Direct y Facebook Messenger</strong> se atienden en vivo directamente en la ventana de Meta Business Suite con la extensión acoplada de {brandName}, permitiendo crear pedidos y consultar stock con un solo clic.
+              Los chats de <strong>WhatsApp, Instagram Direct y Facebook Messenger</strong> se atienden en vivo en Meta Business Suite con la barra acoplada de {brandName}, permitiendo crear pedidos y consultar stock al instante.
             </p>
             <div className="pt-2 flex items-center gap-2 text-[11px] font-semibold text-warm-500">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
               <span>Extensión sincronizada con el catálogo en la nube</span>
-            </div>
-          </div>
-
-          <div className="bg-warm-50/80 rounded-2xl p-5 border border-warm-200/80 space-y-3">
-            <h3 className="font-bold text-sm text-warm-900 flex items-center gap-2">
-              <Globe className="h-4 w-4 text-blue-600" />
-              Enlace Directo
-            </h3>
-            <p className="text-xs text-warm-600 break-all">
-              {metaUrl}
-            </p>
-            <div className="pt-2">
-              <a
-                href={metaUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
-              >
-                <span>Abrir en pestaña nueva</span>
-                <ExternalLink className="h-3 w-3" />
-              </a>
             </div>
           </div>
         </div>
