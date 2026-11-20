@@ -17,20 +17,22 @@ export async function OPTIONS() {
 }
 
 const RelayCreateOrderSchema = z.object({
-  clientName: z.string().min(2, "El nombre del cliente es requerido"),
+  clientName: z.string().optional().default("Cliente Mostrador").transform((v) => v.trim() || "Cliente Mostrador"),
   clientPhone: z.string().optional().default(""),
   recipientName: z.string().optional().default(""),
+  recipientPhone: z.string().optional().nullable().default(""),
   deliveryType: z.enum(["delivery", "pickup"]).default("delivery"),
   address: z.string().optional().default(""),
-  zone: z.string().optional().default("Calacoto, Zona Sur"),
+  zone: z.string().optional().default("Sin zona especificada"),
+  mapsUrl: z.string().optional().nullable().default(""),
   deliveryDate: z.string().min(1, "La fecha de entrega es requerida"),
-  deliveryTime: z.string().min(1, "La hora de entrega es requerida"),
+  deliveryTime: z.string().optional().default("Por coordinar"),
   arrangementName: z.string().min(2, "El nombre del arreglo es requerido"),
   salePrice: z.number().min(0, "El precio debe ser mayor o igual a 0"),
   deliveryFee: z.number().min(0).default(0),
   total: z.number().positive("El total debe ser positivo"),
   paymentMethod: z.enum(["Efectivo", "QR", "Tarjeta"]).default("Efectivo"),
-  dedicationMessage: z.string().min(1, "La dedicatoria es requerida"),
+  dedicationMessage: z.string().optional().default(""),
   recipeItems: z
     .array(
       z.object({
@@ -69,9 +71,11 @@ export async function POST(req: NextRequest) {
       clientName,
       clientPhone,
       recipientName,
+      recipientPhone,
       deliveryType,
       address,
       zone,
+      mapsUrl,
       deliveryDate,
       deliveryTime,
       arrangementName,
@@ -95,8 +99,9 @@ export async function POST(req: NextRequest) {
     const finalDeliveryFee = deliveryType === "pickup" ? 0 : deliveryFee;
     const finalTotal = salePrice + finalDeliveryFee;
 
-    const orderNumber = `PED-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 900 + 100)}`;
-    const ticketNumber = `TCK-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 900 + 100)}`;
+    const sharedSuffix = `${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 900 + 100)}`;
+    const orderNumber = `PED-${sharedSuffix}`;
+    const ticketNumber = `TCK-${sharedSuffix}`;
 
     const dateParts = deliveryDate.split("T")[0];
     const parsedDate = new Date(`${dateParts}T12:00:00.000Z`);
@@ -178,8 +183,10 @@ export async function POST(req: NextRequest) {
           clientName: clientName.trim(),
           clientPhone: clientPhone?.trim() || "",
           recipientName: finalRecipient,
+          recipientPhone: recipientPhone?.trim() || null,
           address: finalAddress,
           zone: finalZone,
+          mapsUrl: deliveryType === "pickup" ? null : mapsUrl?.trim() || null,
           deliveryDate: parsedDate,
           deliveryTime,
           status: "En preparación",
@@ -189,6 +196,7 @@ export async function POST(req: NextRequest) {
           total: finalTotal,
           paymentMethod,
           dedicationMessage: dedicationMessage.trim(),
+          linkedTicketNumber: ticketNumber,
           recipeItems: {
             create: validRecipeItems,
           },
@@ -263,7 +271,12 @@ export async function POST(req: NextRequest) {
 
       if (cleanPhone && cleanPhone.length >= 6) {
         const existingClient = await tx.cRMClient.findUnique({
-          where: { phone: cleanPhone },
+          where: {
+            crmclient_phone_env_unique: {
+              phone: cleanPhone,
+              environment,
+            },
+          },
         });
 
         if (existingClient) {
@@ -284,6 +297,7 @@ export async function POST(req: NextRequest) {
             data: {
               name: cleanClientName,
               phone: cleanPhone,
+              environment,
               purchaseCount: 1,
               totalSpent: finalTotal,
               loyaltyTier: "Bronce",

@@ -6,20 +6,44 @@ import { ActionResponse } from "@/types/action-response";
 import { calculateLoyaltyTier, sanitizeClientPhoneAndName } from "@/lib/crm-utils";
 
 const CreateOrderSchema = z.object({
-  clientName: z.string().min(2, "El nombre del cliente es requerido"),
-  clientPhone: z.string().optional(),
-  recipientName: z.string().min(2, "El destinatario es requerido"),
+  clientName: z
+    .string()
+    .optional()
+    .default("")
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : "Cliente Mostrador")),
+  clientPhone: z.string().optional().default(""),
+  recipientName: z
+    .string()
+    .optional()
+    .default("")
+    .transform((val) => val?.trim() || ""),
+  recipientPhone: z.string().optional().nullable().default(""),
   deliveryType: z.enum(["delivery", "pickup"]).default("delivery"),
-  address: z.string().optional().transform((val) => (val && val.trim().length > 0 ? val.trim() : "Retiro en Tienda / Local")),
-  zone: z.string().optional().transform((val) => (val && val.trim().length > 0 ? val.trim() : "Tienda Central")),
+  address: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : "Retiro en Tienda / Local")),
+  zone: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : "Sin zona especificada")),
+  mapsUrl: z.string().optional().nullable().default(""),
   deliveryDate: z.string().min(1, "La fecha es requerida"),
-  deliveryTime: z.string().min(1, "La hora es requerida"),
+  deliveryTime: z
+    .string()
+    .optional()
+    .default("")
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : "Por coordinar")),
   arrangementName: z.string().min(2, "El nombre del arreglo es requerido"),
   salePrice: z.number().min(0).default(0),
   deliveryFee: z.number().min(0).default(0),
   total: z.number().positive("El total debe ser positivo"),
   paymentMethod: z.enum(["Efectivo", "QR", "Tarjeta"]).default("Efectivo"),
-  dedicationMessage: z.string().min(1, "La dedicatoria es requerida"),
+  dedicationMessage: z
+    .string()
+    .optional()
+    .default("")
+    .transform((val) => val?.trim() || ""),
   recipeItems: z
     .array(
       z.object({
@@ -60,8 +84,6 @@ export async function getOrdersAction(): Promise<ActionResponse> {
   }
 }
 
-
-
 const UpdateOrderStatusSchema = z.object({
   id: z.string().min(1, "ID de pedido no provisto"),
   status: z.enum(["En preparación", "En camino", "Entregado"]),
@@ -82,8 +104,11 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
       clientName,
       clientPhone,
       recipientName,
+      recipientPhone,
+      deliveryType,
       address,
       zone,
+      mapsUrl,
       deliveryDate,
       deliveryTime,
       arrangementName,
@@ -95,14 +120,20 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
       recipeItems = [],
     } = parsed.data;
 
-    const orderNumber = `PED-${Date.now().toString().slice(-6)}`;
-    const ticketNumber = `TCK-${Date.now().toString().slice(-6)}`;
+    const finalRecipient = recipientName || clientName;
+    const finalAddress = deliveryType === "pickup" ? "Retiro en Tienda / Local" : address;
+    const finalZone = deliveryType === "pickup" ? "Tienda Central" : zone;
+    const finalDeliveryFee = deliveryType === "pickup" ? 0 : deliveryFee;
+
+    const suffix = `${Date.now().toString().slice(-6)}`;
+    const orderNumber = `PED-${suffix}`;
+    const ticketNumber = `TCK-${suffix}`;
 
     const dateParts = deliveryDate.split("T")[0];
     const parsedDate = new Date(`${dateParts}T12:00:00.000Z`);
 
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Stock check & decrement for recipe items
+      // 1. Optional non-blocking stock decrement if explicit recipe items were provided
       for (const item of recipeItems) {
         const ing = await tx.rawIngredient.findUnique({
           where: { id: item.rawIngredientId },
@@ -119,24 +150,27 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
         }
       }
 
-      // 2. Create OrderDelivery
+      // 2. Create OrderDelivery with linkedTicketNumber for zero double-counting & clean cascade delete
       const order = await tx.orderDelivery.create({
         data: {
           orderNumber,
           clientName,
-          clientPhone: clientPhone || "",
-          recipientName,
-          address,
-          zone,
+          clientPhone: clientPhone?.trim() || "",
+          recipientName: finalRecipient,
+          recipientPhone: recipientPhone?.trim() || null,
+          address: finalAddress,
+          zone: finalZone,
+          mapsUrl: deliveryType === "pickup" ? null : mapsUrl?.trim() || null,
           deliveryDate: parsedDate,
           deliveryTime,
           status: "En preparación",
           arrangementName,
           salePrice,
-          deliveryFee,
+          deliveryFee: finalDeliveryFee,
           total,
           paymentMethod,
           dedicationMessage,
+          linkedTicketNumber: ticketNumber,
           recipeItems: {
             create: recipeItems.map((r) => ({
               rawIngredientId: r.rawIngredientId,
@@ -152,12 +186,12 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
         },
       });
 
-      // 3. Create POSTicket and attach to active shift if available
+      // 3. Create paired POSTicket for printable receipt & shift log
       const ticket = await tx.pOSTicket.create({
         data: {
           ticketNumber,
           customerName: clientName,
-          customerPhone: clientPhone || "",
+          customerPhone: clientPhone?.trim() || "",
           totalAmount: total,
           paymentMethod,
           ticketItems: {
@@ -167,11 +201,11 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
                 price: salePrice,
                 quantity: 1,
               },
-              ...(deliveryFee > 0
+              ...(finalDeliveryFee > 0
                 ? [
                     {
-                      itemName: `Servicio de Delivery (${zone})`,
-                      price: deliveryFee,
+                      itemName: `Servicio de Delivery (${finalZone})`,
+                      price: finalDeliveryFee,
                       quantity: 1,
                     },
                   ]
@@ -184,6 +218,7 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
       // 4. Update CashRegisterShift if an Open shift exists
       const activeShift = await tx.cashRegisterShift.findFirst({
         where: { status: "Open" },
+        orderBy: { createdAt: "desc" },
       });
 
       if (activeShift) {
@@ -205,14 +240,19 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
         }
       }
 
-      // 5. Auto-capture / update CRMClient for loyalty and customer directory
+      // 5. Auto-capture / update CRMClient isolated to Farfalina environment
       const sanitized = sanitizeClientPhoneAndName(clientPhone || "", clientName?.trim() || "Cliente Farfalina");
       const cleanPhone = sanitized.phone;
       const cleanClientName = sanitized.name;
 
       if (cleanPhone && cleanPhone.length >= 6) {
         const existingClient = await tx.cRMClient.findUnique({
-          where: { phone: cleanPhone },
+          where: {
+            crmclient_phone_env_unique: {
+              phone: cleanPhone,
+              environment: "farfalina",
+            },
+          },
         });
 
         if (existingClient) {
@@ -233,6 +273,7 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
             data: {
               name: cleanClientName,
               phone: cleanPhone,
+              environment: "farfalina",
               purchaseCount: 1,
               totalSpent: total,
               loyaltyTier: "Bronce",
@@ -242,7 +283,6 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
         }
       }
 
-
       return { order, ticket };
     });
 
@@ -250,7 +290,6 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
       success: true,
       data: result,
     };
-
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Error al generar ticket unificado";
     return {
@@ -260,7 +299,6 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
     };
   }
 }
-
 
 export async function updateOrderStatusAction(
   id: string,
@@ -302,20 +340,46 @@ export async function updateOrderStatusAction(
 
 const UpdateOrderSchema = z.object({
   id: z.string().min(1, "ID de pedido es requerido"),
-  clientName: z.string().min(2, "El nombre del cliente es requerido"),
+  clientName: z
+    .string()
+    .optional()
+    .default("")
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : "Cliente Mostrador")),
   clientPhone: z.string().optional().nullable(),
-  recipientName: z.string().min(2, "El destinatario es requerido"),
+  recipientName: z
+    .string()
+    .optional()
+    .default("")
+    .transform((val) => val?.trim() || ""),
+  recipientPhone: z.string().optional().nullable(),
   deliveryType: z.enum(["delivery", "pickup"]).default("delivery"),
-  address: z.string().optional().nullable().transform((val) => (val && val.trim().length > 0 ? val.trim() : "Retiro en Tienda / Local")),
-  zone: z.string().optional().nullable().transform((val) => (val && val.trim().length > 0 ? val.trim() : "Tienda Central")),
+  address: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : "Retiro en Tienda / Local")),
+  zone: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : "Sin zona especificada")),
+  mapsUrl: z.string().optional().nullable(),
   deliveryDate: z.string().min(1, "La fecha es requerida"),
-  deliveryTime: z.string().min(1, "La hora es requerida"),
+  deliveryTime: z
+    .string()
+    .optional()
+    .default("")
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : "Por coordinar")),
   arrangementName: z.string().min(2, "El nombre del arreglo es requerido"),
   salePrice: z.number().min(0).default(0),
   deliveryFee: z.number().min(0).default(0),
   total: z.number().positive("El total debe ser positivo"),
   paymentMethod: z.enum(["Efectivo", "QR", "Tarjeta"]).default("Efectivo"),
-  dedicationMessage: z.string().min(1, "La dedicatoria es requerida"),
+  dedicationMessage: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((val) => val?.trim() || ""),
   status: z.enum(["En preparación", "En camino", "Entregado"]).default("En preparación"),
 });
 
@@ -337,8 +401,11 @@ export async function updateOrderAction(rawInput: UpdateOrderInput): Promise<Act
       clientName,
       clientPhone,
       recipientName,
+      recipientPhone,
+      deliveryType,
       address,
       zone,
+      mapsUrl,
       deliveryDate,
       deliveryTime,
       arrangementName,
@@ -357,15 +424,17 @@ export async function updateOrderAction(rawInput: UpdateOrderInput): Promise<Act
       where: { id },
       data: {
         clientName,
-        clientPhone: clientPhone || "",
-        recipientName,
-        address,
-        zone,
+        clientPhone: clientPhone?.trim() || "",
+        recipientName: recipientName || clientName,
+        recipientPhone: recipientPhone?.trim() || null,
+        address: deliveryType === "pickup" ? "Retiro en Tienda / Local" : address,
+        zone: deliveryType === "pickup" ? "Tienda Central" : zone,
+        mapsUrl: deliveryType === "pickup" ? null : mapsUrl?.trim() || null,
         deliveryDate: parsedDate,
         deliveryTime,
         arrangementName,
         salePrice,
-        deliveryFee,
+        deliveryFee: deliveryType === "pickup" ? 0 : deliveryFee,
         total,
         paymentMethod,
         dedicationMessage,
@@ -418,7 +487,7 @@ export async function deleteOrderAction(id: string): Promise<ActionResponse> {
     }
 
     await prisma.$transaction(async (tx) => {
-      // 1. Revert flower inventory (RawIngredient available stock)
+      // 1. Revert flower inventory if any recipe items were attached
       for (const item of order.recipeItems) {
         if (item.rawIngredientId && item.quantityNeeded > 0) {
           await tx.rawIngredient.update({
@@ -432,7 +501,49 @@ export async function deleteOrderAction(id: string): Promise<ActionResponse> {
         }
       }
 
-      // 2. Delete OrderDelivery (OrderRecipeItem is cascade-deleted)
+      // 2. Delete paired POSTicket so it NEVER remains orphaned in Contabilidad
+      const candidateTicketNumbers = new Set<string>();
+      if (order.linkedTicketNumber) {
+        candidateTicketNumbers.add(order.linkedTicketNumber);
+      }
+      if (order.orderNumber.startsWith("PED-")) {
+        candidateTicketNumbers.add(`TCK-${order.orderNumber.slice(4)}`);
+      }
+      if (candidateTicketNumbers.size > 0) {
+        await tx.pOSTicket.deleteMany({
+          where: {
+            ticketNumber: {
+              in: Array.from(candidateTicketNumbers),
+            },
+          },
+        });
+      }
+
+      // 3. Revert active open cash shift bucket if this order was created during the open shift
+      const activeShift = await tx.cashRegisterShift.findFirst({
+        where: { status: "Open" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (activeShift && order.createdAt >= activeShift.createdAt) {
+        if (order.paymentMethod === "Efectivo") {
+          await tx.cashRegisterShift.update({
+            where: { id: activeShift.id },
+            data: { totalSalesCash: Math.max(0, activeShift.totalSalesCash - order.total) },
+          });
+        } else if (order.paymentMethod === "QR") {
+          await tx.cashRegisterShift.update({
+            where: { id: activeShift.id },
+            data: { totalSalesQR: Math.max(0, activeShift.totalSalesQR - order.total) },
+          });
+        } else if (order.paymentMethod === "Tarjeta") {
+          await tx.cashRegisterShift.update({
+            where: { id: activeShift.id },
+            data: { totalSalesCard: Math.max(0, activeShift.totalSalesCard - order.total) },
+          });
+        }
+      }
+
+      // 4. Delete OrderDelivery (OrderRecipeItem is cascade-deleted)
       await tx.orderDelivery.delete({
         where: { id },
       });
@@ -451,4 +562,3 @@ export async function deleteOrderAction(id: string): Promise<ActionResponse> {
     };
   }
 }
-

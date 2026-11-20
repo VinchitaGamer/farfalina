@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, X, Printer, Trash2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { BookingItem } from "../orders-view";
 
@@ -11,6 +11,8 @@ interface OrdersCalendarViewProps {
   selectedDayEvents: { date: string; bookings: BookingItem[] } | null;
   setSelectedDayEvents: (events: { date: string; bookings: BookingItem[] } | null) => void;
   getBookingsForDay: (day: number) => BookingItem[];
+  setSelectedContractBooking: (booking: BookingItem) => void;
+  onDeleteBooking: (booking: BookingItem) => void;
 }
 
 export default function OrdersCalendarView({
@@ -19,6 +21,8 @@ export default function OrdersCalendarView({
   selectedDayEvents,
   setSelectedDayEvents,
   getBookingsForDay,
+  setSelectedContractBooking,
+  onDeleteBooking,
 }: OrdersCalendarViewProps) {
   const year = currentCalendarDate.getFullYear();
   const month = currentCalendarDate.getMonth();
@@ -151,6 +155,25 @@ export default function OrdersCalendarView({
                   <div className="flex justify-between text-[10px] text-warm-600 border-t border-warm-100 pt-1">
                     <span>Retorno: {new Date(b.rentalEndDate).toLocaleDateString()}</span>
                     <span className="font-bold text-emerald-700">{formatCurrency(b.rentalPrice)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 pt-1.5 border-t border-warm-200">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedContractBooking(b)}
+                      className="flex-1 py-1.5 px-2 bg-white hover:bg-warm-100 text-warm-800 rounded-lg border border-warm-200 text-[11px] font-bold inline-flex items-center justify-center gap-1 transition-colors"
+                    >
+                      <Printer className="h-3.5 w-3.5" />
+                      <span>Contrato</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteBooking(b)}
+                      className="py-1.5 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 text-[11px] font-bold inline-flex items-center justify-center gap-1 transition-colors"
+                      title="Anular / eliminar alquiler"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Eliminar</span>
+                    </button>
                   </div>
                 </div>
               ))}

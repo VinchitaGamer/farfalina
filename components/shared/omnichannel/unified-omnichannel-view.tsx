@@ -341,17 +341,18 @@ export function UnifiedOmnichannelView({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeLightboxImg]);
 
-  const defaultMetaUrl =
-    environment === "farfalina"
-      ? "https://business.facebook.com/latest/inbox/all?asset_id=278972961977030&business_id=3349413642033505"
-      : "https://business.facebook.com/latest/inbox/all";
+  const defaultMetaUrl = "https://business.facebook.com/latest/inbox/all";
 
   const [metaUrl, setMetaUrl] = useState<string>(defaultMetaUrl);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem(`farfalina_meta_url_${environment}`);
-      if (saved && saved.startsWith("https://business.facebook.com")) {
+      if (
+        saved &&
+        saved.startsWith("https://business.facebook.com") &&
+        !saved.includes("asset_id=278972961977030")
+      ) {
         setMetaUrl(saved);
       }
     }

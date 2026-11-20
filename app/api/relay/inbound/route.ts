@@ -302,7 +302,12 @@ export async function POST(req: NextRequest) {
     if (isRealPhone && numericPhone.length >= 7 && numericPhone.length <= 15) {
       try {
         const existingCrm = await prisma.cRMClient.findUnique({
-          where: { phone: formattedPhone },
+          where: {
+            crmclient_phone_env_unique: {
+              phone: formattedPhone,
+              environment,
+            },
+          },
         });
 
         const extraDetails = [
@@ -321,6 +326,7 @@ export async function POST(req: NextRequest) {
             data: {
               name: clientName,
               phone: formattedPhone,
+              environment,
               notes: fullNotes,
               loyaltyTier: "Bronce",
             },

@@ -16,14 +16,18 @@ import {
   ListTodo,
   RefreshCw,
   ArrowRight,
+  ArrowLeft,
   Store,
   Phone,
   CreditCard,
   Edit2,
-  Trash2
+  Trash2,
+  Copy,
+  ExternalLink
 } from "lucide-react";
 import { getOrdersAction, updateOrderStatusAction, deleteOrderAction } from "@/app/actions/logistics";
 import { formatCurrency } from "@/lib/utils";
+import { buildDeliveryWhatsAppMessage } from "@/lib/delivery-whatsapp";
 import { toast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import EditOrderModal from "./edit-order-modal";
@@ -32,10 +36,12 @@ interface OrderDeliveryItem {
   id: string;
   orderNumber: string;
   clientName: string;
-  clientPhone?: string;
+  clientPhone?: string | null;
   recipientName: string;
+  recipientPhone?: string | null;
   address: string;
   zone: string;
+  mapsUrl?: string | null;
   deliveryDate: string | Date;
   deliveryTime: string;
   status: "En preparación" | "En camino" | "Entregado";
@@ -51,6 +57,14 @@ interface OrderDeliveryItem {
     unitCost?: number;
     rawIngredient?: { name: string; unit: string; costPerUnit?: number };
   }[];
+}
+
+function isPickupOrder(order: Pick<OrderDeliveryItem, "address">): boolean {
+  return Boolean(order.address && order.address.toLowerCase().includes("retiro en tienda"));
+}
+
+function isHttpUrl(url?: string | null): boolean {
+  return Boolean(url && /^https?:\/\//i.test(url.trim()));
 }
 
 export default function OrdersView() {
@@ -117,6 +131,31 @@ export default function OrdersView() {
       loadOrders();
     } else {
       toast.error(res.error || "No se pudo eliminar el pedido");
+    }
+  };
+
+  const handleCopyDelivery = async (order: OrderDeliveryItem) => {
+    const message = buildDeliveryWhatsAppMessage({
+      orderNumber: order.orderNumber,
+      clientName: order.clientName,
+      clientPhone: order.clientPhone,
+      recipientName: order.recipientName,
+      recipientPhone: order.recipientPhone,
+      address: order.address,
+      zone: order.zone,
+      mapsUrl: order.mapsUrl,
+      deliveryDate: order.deliveryDate,
+      deliveryTime: order.deliveryTime,
+      arrangementName: order.arrangementName,
+      deliveryFee: order.deliveryFee,
+      deliveryType: isPickupOrder(order) ? "pickup" : "delivery",
+    });
+
+    try {
+      await navigator.clipboard.writeText(message);
+      toast.success("Datos de delivery copiados para enviar por WhatsApp");
+    } catch {
+      toast.error("No se pudo copiar al portapapeles");
     }
   };
 
@@ -573,9 +612,9 @@ export default function OrdersView() {
                         <div key={order.id} className="card-warm p-4 space-y-3">
                           <div className="flex justify-between items-start">
                             <div>
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="text-[10px] font-mono font-bold text-warm-400">{order.orderNumber}</span>
-                                {order.address?.includes("Retiro en Tienda") || order.deliveryFee === 0 ? (
+                                {isPickupOrder(order) ? (
                                   <span className="px-1.5 py-0.2 text-[9px] font-bold rounded bg-purple-100 text-purple-800 border border-purple-200 inline-flex items-center gap-1">
                                     <Store className="h-3 w-3 text-purple-700" />
                                     <span>Retiro en Tienda</span>
@@ -595,13 +634,36 @@ export default function OrdersView() {
                             <span className="text-xs font-bold text-terracotta-700 font-mono">{formatCurrency(order.total)}</span>
                           </div>
 
-                          <div>
+                          <div className="space-y-1">
                             <h4 className="font-bold text-xs text-warm-900">{order.arrangementName}</h4>
-                            <p className="text-xs text-warm-600 mt-1 flex items-center gap-1">
+                            <p className="text-xs text-warm-600 flex items-center gap-1 flex-wrap">
                               <MapPin className="h-3 w-3 text-terracotta-500 shrink-0" />
-                              <span>{order.recipientName} — {order.zone}</span>
+                              <span>{order.recipientName}{order.zone ? ` — ${order.zone}` : ""}</span>
                             </p>
+                            {order.recipientPhone && (
+                              <p className="text-[10px] text-warm-600 pl-4 font-mono flex items-center gap-1">
+                                <Phone className="h-3 w-3 text-warm-400" />
+                                <span>Destinatario: {order.recipientPhone}</span>
+                              </p>
+                            )}
                             <p className="text-[10px] text-warm-400 pl-4">{order.address}</p>
+                            {order.mapsUrl && (
+                              <div className="pl-4 pt-0.5">
+                                {isHttpUrl(order.mapsUrl) ? (
+                                  <a
+                                    href={order.mapsUrl.trim()}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline"
+                                  >
+                                    <ExternalLink className="h-3 w-3" />
+                                    <span>Abrir ubicación en Maps</span>
+                                  </a>
+                                ) : (
+                                  <span className="text-[10px] text-blue-700 break-all">Maps: {order.mapsUrl}</span>
+                                )}
+                              </div>
+                            )}
                           </div>
 
                           {/* Recipe items if available */}
@@ -616,14 +678,25 @@ export default function OrdersView() {
                             </div>
                           )}
 
-                          <div className="p-2 bg-warm-50 rounded-lg border border-warm-100 space-y-1">
-                            <span className="text-[9px] uppercase font-bold text-warm-400 tracking-wider">Dedicatoria:</span>
-                            <p className="text-[11px] italic text-warm-700 line-clamp-2">&ldquo;{order.dedicationMessage}&rdquo;</p>
-                          </div>
+                          {order.dedicationMessage?.trim() ? (
+                            <div className="p-2 bg-warm-50 rounded-lg border border-warm-100 space-y-1">
+                              <span className="text-[9px] uppercase font-bold text-warm-400 tracking-wider">Dedicatoria:</span>
+                              <p className="text-[11px] italic text-warm-700 line-clamp-2">&ldquo;{order.dedicationMessage}&rdquo;</p>
+                            </div>
+                          ) : null}
 
                           {/* Actions with >= 44x44px touch targets */}
                           <div className="pt-2 border-t border-warm-100 flex flex-col gap-2">
                             <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyDelivery(order)}
+                                className="min-h-[44px] py-2 px-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border border-emerald-200 active:scale-95 touch-manipulation"
+                                title="Copiar datos de entrega listos para WhatsApp"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                                <span>Copiar Delivery</span>
+                              </button>
                               <button
                                 onClick={() =>
                                   openCardPrinter({
@@ -633,29 +706,37 @@ export default function OrdersView() {
                                     date: `${new Date(order.deliveryDate).toLocaleDateString()} - ${order.deliveryTime}`,
                                   })
                                 }
-                                className="min-h-[44px] py-2 px-3 bg-terracotta-50 hover:bg-terracotta-100 text-terracotta-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border border-terracotta-200 active:scale-95 touch-manipulation"
+                                className="min-h-[44px] py-2 px-2.5 bg-terracotta-50 hover:bg-terracotta-100 text-terracotta-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border border-terracotta-200 active:scale-95 touch-manipulation"
                               >
-                                <Printer className="h-4 w-4" />
+                                <Printer className="h-3.5 w-3.5" />
                                 <span>Tarjeta</span>
                               </button>
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  onClick={() => setEditingOrder(order)}
-                                  className="flex-1 min-h-[44px] py-2 px-2.5 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 border border-warm-300 active:scale-95 touch-manipulation"
-                                  title="Editar Pedido"
-                                >
-                                  <Edit2 className="h-4 w-4 text-warm-600" />
-                                  <span>Editar</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteOrder(order)}
-                                  className="min-h-[44px] min-w-[40px] px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center border border-rose-200 active:scale-95 touch-manipulation"
-                                  title="Eliminar este pedido de la base de datos"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => setEditingOrder(order)}
+                                className="flex-1 min-h-[44px] py-2 px-2.5 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 border border-warm-300 active:scale-95 touch-manipulation"
+                                title="Editar Pedido"
+                              >
+                                <Edit2 className="h-3.5 w-3.5 text-warm-600" />
+                                <span>Editar</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedOrder(order)}
+                                className="flex-1 min-h-[44px] py-2 px-2.5 bg-white hover:bg-warm-50 text-warm-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center border border-warm-200 active:scale-95 touch-manipulation"
+                              >
+                                Detalle
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteOrder(order)}
+                                className="min-h-[44px] min-w-[44px] px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center border border-rose-200 active:scale-95 touch-manipulation"
+                                title="Eliminar este pedido de la base de datos"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
 
                             {columnStatus === "En preparación" && (
@@ -668,13 +749,46 @@ export default function OrdersView() {
                               </button>
                             )}
                             {columnStatus === "En camino" && (
-                              <button
-                                onClick={() => handleUpdateStatus(order.id, "Entregado")}
-                                className="w-full min-h-[44px] py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation shadow-xs"
-                              >
-                                <span>Marcar &quot;Entregado&quot;</span>
-                                <CheckCircle2 className="h-4 w-4" />
-                              </button>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateStatus(order.id, "En preparación")}
+                                  className="min-h-[44px] py-2 px-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-xl text-xs font-bold border border-amber-200 transition-all flex items-center justify-center gap-1 active:scale-95 touch-manipulation"
+                                  title="Volver a En preparación"
+                                >
+                                  <ArrowLeft className="h-3.5 w-3.5" />
+                                  <span>En prep.</span>
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateStatus(order.id, "Entregado")}
+                                  className="min-h-[44px] py-2 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 active:scale-95 touch-manipulation shadow-xs"
+                                >
+                                  <span>Entregado</span>
+                                  <CheckCircle2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
+                            {columnStatus === "Entregado" && (
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateStatus(order.id, "En camino")}
+                                  className="min-h-[44px] py-2 px-2.5 bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-xl text-xs font-bold border border-blue-200 transition-all flex items-center justify-center gap-1 active:scale-95 touch-manipulation"
+                                  title="Volver a En camino"
+                                >
+                                  <ArrowLeft className="h-3.5 w-3.5" />
+                                  <span>En camino</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateStatus(order.id, "En preparación")}
+                                  className="min-h-[44px] py-2 px-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-xl text-xs font-bold border border-amber-200 transition-all flex items-center justify-center gap-1 active:scale-95 touch-manipulation"
+                                  title="Volver a En preparación"
+                                >
+                                  <ArrowLeft className="h-3.5 w-3.5" />
+                                  <span>En prep.</span>
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -737,7 +851,7 @@ export default function OrdersView() {
               {filteredAgendaOrders.map((ord) => (
                 <div key={ord.id} className="p-4 bg-warm-50/60 rounded-2xl border border-warm-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono text-xs font-bold text-warm-400">{ord.orderNumber}</span>
                       <span
                         className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
@@ -750,7 +864,7 @@ export default function OrdersView() {
                       >
                         {ord.status}
                       </span>
-                      {ord.address?.includes("Retiro en Tienda") || ord.deliveryFee === 0 ? (
+                      {isPickupOrder(ord) ? (
                         <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-purple-100 text-purple-800 border border-purple-200 inline-flex items-center gap-1">
                           <Store className="h-3 w-3 text-purple-700" />
                           <span>Retiro en Tienda</span>
@@ -759,22 +873,51 @@ export default function OrdersView() {
                     </div>
 
                     <h4 className="font-bold text-sm text-warm-900">{ord.arrangementName}</h4>
-                    <p className="text-xs text-warm-600 flex items-center gap-1.5">
-                      <MapPin className="h-3.5 w-3.5 text-terracotta-500" />
-                      <strong>{ord.recipientName}</strong> — {ord.address?.includes("Retiro en Tienda") ? "Retiro en Tienda Central" : `${ord.address} (${ord.zone})`}
+                    <p className="text-xs text-warm-600 flex items-center gap-1.5 flex-wrap">
+                      <MapPin className="h-3.5 w-3.5 text-terracotta-500 shrink-0" />
+                      <strong>{ord.recipientName}</strong>
+                      {ord.recipientPhone && <span className="font-mono text-[11px] text-warm-500">({ord.recipientPhone})</span>}
+                      <span>— {isPickupOrder(ord) ? "Retiro en Tienda Central" : `${ord.address}${ord.zone ? ` (${ord.zone})` : ""}`}</span>
                     </p>
+                    {ord.mapsUrl && (
+                      <div className="pl-5">
+                        {isHttpUrl(ord.mapsUrl) ? (
+                          <a
+                            href={ord.mapsUrl.trim()}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:underline"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            <span>Abrir ubicación en Google Maps</span>
+                          </a>
+                        ) : (
+                          <span className="text-[11px] text-blue-700 break-all">Maps: {ord.mapsUrl}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full md:w-auto">
                     <div className="text-left sm:text-right font-mono">
                       <span className="text-[10px] text-warm-400 block font-sans">
-                        {ord.address?.includes("Retiro en Tienda") ? "Hora Retiro:" : "Hora Entrega:"}
+                        {isPickupOrder(ord) ? "Hora Retiro:" : "Hora Entrega:"}
                       </span>
                       <span className="font-bold text-xs text-warm-900">{new Date(ord.deliveryDate).toLocaleDateString()} a las {ord.deliveryTime}</span>
                       <span className="text-xs font-bold text-terracotta-700 block">{formatCurrency(ord.total)}</span>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyDelivery(ord)}
+                        className="min-h-[44px] px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold border border-emerald-200 transition-all flex items-center gap-1.5 active:scale-95 touch-manipulation"
+                        title="Copiar datos de entrega listos para WhatsApp"
+                      >
+                        <Copy className="h-4 w-4" />
+                        <span>Delivery</span>
+                      </button>
+
                       <button
                         onClick={() =>
                           openCardPrinter({
@@ -800,12 +943,34 @@ export default function OrdersView() {
                         </button>
                       )}
                       {ord.status === "En camino" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateStatus(ord.id, "En preparación")}
+                            className="min-h-[44px] px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-xl text-xs font-bold border border-amber-200 transition-all flex items-center gap-1 active:scale-95 touch-manipulation"
+                            title="Volver a En preparación"
+                          >
+                            <ArrowLeft className="h-3.5 w-3.5" />
+                            <span>En prep.</span>
+                          </button>
+                          <button
+                            onClick={() => handleUpdateStatus(ord.id, "Entregado")}
+                            className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 touch-manipulation"
+                          >
+                            <span>Entregado</span>
+                            <CheckCircle2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                      {ord.status === "Entregado" && (
                         <button
-                          onClick={() => handleUpdateStatus(ord.id, "Entregado")}
-                          className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 touch-manipulation"
+                          type="button"
+                          onClick={() => handleUpdateStatus(ord.id, "En camino")}
+                          className="min-h-[44px] px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-xl text-xs font-bold border border-blue-200 transition-all flex items-center gap-1 active:scale-95 touch-manipulation"
+                          title="Volver a En camino"
                         >
-                          <span>Entregado</span>
-                          <CheckCircle2 className="h-4 w-4" />
+                          <ArrowLeft className="h-3.5 w-3.5" />
+                          <span>En camino</span>
                         </button>
                       )}
                       <button
@@ -863,7 +1028,7 @@ export default function OrdersView() {
                     >
                       {selectedOrder.status}
                     </span>
-                    {selectedOrder.address?.includes("Retiro en Tienda") || selectedOrder.deliveryFee === 0 ? (
+                    {isPickupOrder(selectedOrder) ? (
                       <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-purple-100 text-purple-800 border border-purple-200 inline-flex items-center gap-1">
                         <Store className="h-3 w-3 text-purple-700" />
                         <span>Retiro en Tienda</span>
@@ -883,9 +1048,9 @@ export default function OrdersView() {
             </div>
 
             {/* Quick Status Buttons */}
-            <div className="flex items-center justify-between gap-2 p-3 bg-warm-50 rounded-2xl border border-warm-200">
+            <div className="flex items-center justify-between gap-2 p-3 bg-warm-50 rounded-2xl border border-warm-200 flex-wrap">
               <span className="text-xs font-bold text-warm-700">Cambiar Estado Rápido:</span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {selectedOrder.status !== "En preparación" && (
                   <button
                     onClick={async () => {
@@ -941,23 +1106,46 @@ export default function OrdersView() {
               <div className="space-y-1">
                 <span className="font-bold text-warm-400 uppercase text-[10px] tracking-wider block">Destinatario & Modalidad:</span>
                 <p className="font-bold text-warm-900">{selectedOrder.recipientName}</p>
-                {selectedOrder.address?.includes("Retiro en Tienda") || selectedOrder.deliveryFee === 0 ? (
+                {selectedOrder.recipientPhone && (
+                  <p className="text-warm-600 font-mono inline-flex items-center gap-1">
+                    <Phone className="h-3 w-3 text-terracotta-500" />
+                    <span>{selectedOrder.recipientPhone}</span>
+                  </p>
+                )}
+                {isPickupOrder(selectedOrder) ? (
                   <p className="text-purple-800 font-bold flex items-center gap-1">
                     <Store className="h-3.5 w-3.5 text-purple-700" />
                     <span>Retiro en Tienda Central</span>
                   </p>
                 ) : (
-                  <p className="text-warm-600 flex items-center gap-1">
-                    <MapPin className="h-3.5 w-3.5 text-terracotta-500 shrink-0" />
-                    <span>{selectedOrder.address} ({selectedOrder.zone})</span>
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-warm-600 flex items-center gap-1">
+                      <MapPin className="h-3.5 w-3.5 text-terracotta-500 shrink-0" />
+                      <span>{selectedOrder.address}{selectedOrder.zone ? ` (${selectedOrder.zone})` : ""}</span>
+                    </p>
+                    {selectedOrder.mapsUrl && (
+                      isHttpUrl(selectedOrder.mapsUrl) ? (
+                        <a
+                          href={selectedOrder.mapsUrl.trim()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:underline"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          <span>Abrir ubicación en Google Maps</span>
+                        </a>
+                      ) : (
+                        <p className="text-[11px] text-blue-700 break-all">Maps: {selectedOrder.mapsUrl}</p>
+                      )
+                    )}
+                  </div>
                 )}
               </div>
 
               <div className="sm:col-span-2 pt-2 border-t border-warm-200 flex flex-wrap justify-between gap-2">
                 <div>
                   <span className="font-bold text-warm-400 uppercase text-[10px] tracking-wider block">
-                    {selectedOrder.address?.includes("Retiro en Tienda") ? "Fecha & Hora de Retiro:" : "Fecha & Hora Programada:"}
+                    {isPickupOrder(selectedOrder) ? "Fecha & Hora de Retiro:" : "Fecha & Hora Programada:"}
                   </span>
                   <p className="font-bold text-terracotta-700 inline-flex items-center gap-1">
                     <Calendar className="h-3.5 w-3.5 text-terracotta-600" />
@@ -986,9 +1174,11 @@ export default function OrdersView() {
               <div className="flex justify-between text-warm-700">
                 <span>Costo Envío:</span>
                 <span className="font-mono font-bold">
-                  {selectedOrder.address?.includes("Retiro en Tienda") || selectedOrder.deliveryFee === 0
+                  {isPickupOrder(selectedOrder)
                     ? "0.00 Bs (Exento - Retiro en Tienda)"
-                    : formatCurrency(selectedOrder.deliveryFee || 20)}
+                    : (selectedOrder.deliveryFee || 0) === 0
+                    ? "0.00 Bs (Pago directo / Sin recargo)"
+                    : formatCurrency(selectedOrder.deliveryFee || 0)}
                 </span>
               </div>
               <div className="pt-2 border-t border-warm-200 flex justify-between text-sm font-bold text-terracotta-800">
@@ -999,7 +1189,7 @@ export default function OrdersView() {
 
             {/* Section 3: Printed Dedication Card */}
             <div className="p-4 bg-gradient-to-br from-terracotta-50/60 to-warm-50 rounded-2xl border border-terracotta-200 space-y-3">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center gap-2 flex-wrap">
                 <span className="font-bold text-xs text-terracotta-800 flex items-center gap-1.5">
                   <Sparkles className="h-4 w-4 text-terracotta-600" /> Tarjeta Dedicatoria Impresa
                 </span>
@@ -1018,9 +1208,13 @@ export default function OrdersView() {
                   Imprimir Tarjeta
                 </button>
               </div>
-              <div className="p-3 bg-white/80 rounded-xl border border-terracotta-100">
-                <p className="text-xs italic text-warm-800 font-serif line-clamp-4">&ldquo;{selectedOrder.dedicationMessage}&rdquo;</p>
-              </div>
+              {selectedOrder.dedicationMessage?.trim() ? (
+                <div className="p-3 bg-white/80 rounded-xl border border-terracotta-100">
+                  <p className="text-xs italic text-warm-800 font-serif line-clamp-4">&ldquo;{selectedOrder.dedicationMessage}&rdquo;</p>
+                </div>
+              ) : (
+                <p className="text-xs text-warm-500 italic">Sin mensaje dedicatorio registrado para este pedido.</p>
+              )}
             </div>
 
             {/* Section 4: Recipe Ingredients Breakdown */}
@@ -1044,15 +1238,26 @@ export default function OrdersView() {
 
             {/* Modal Footer */}
             <div className="pt-2 border-t border-warm-200 flex items-center justify-between gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => handleDeleteOrder(selectedOrder)}
-                className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 transition-all flex items-center gap-1.5"
-                title="Eliminar este pedido permanentemente"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>Eliminar Pedido</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDeleteOrder(selectedOrder)}
+                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 transition-all flex items-center gap-1.5"
+                  title="Eliminar este pedido permanentemente"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Eliminar</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCopyDelivery(selectedOrder)}
+                  className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold border border-emerald-200 transition-all flex items-center gap-1.5"
+                  title="Copiar datos de entrega listos para WhatsApp"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  <span>Copiar Delivery</span>
+                </button>
+              </div>
 
               <div className="flex items-center gap-2">
                 <button

@@ -13,7 +13,6 @@ import {
   CalendarDays
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { openMetaBusinessSuite } from "@/lib/meta-business";
 
 export default function MobileBottomNav() {
   const pathname = usePathname();
@@ -70,19 +69,27 @@ export default function MobileBottomNav() {
               <span className="text-[10px] mt-0.5 tracking-tight">POS</span>
             </Link>
 
-            {/* 3. Mensajes (Meta Business Suite) */}
-            <button
-              type="button"
-              onClick={() => openMetaBusinessSuite("farfalina")}
-              className="flex flex-col items-center justify-center min-h-[48px] min-w-[48px] py-1 px-2 rounded-xl transition-all active:scale-95 touch-manipulation relative text-warm-500 hover:text-warm-900"
-              title="Abrir Meta Business Suite (Bandeja de Mensajes)"
+            {/* 3. Mensajes (Hub Meta Business Suite) */}
+            <Link
+              href="/floreria/omnichannel"
+              className={cn(
+                "flex flex-col items-center justify-center min-h-[48px] min-w-[48px] py-1 px-2 rounded-xl transition-all active:scale-95 touch-manipulation relative",
+                pathname.startsWith("/floreria/omnichannel")
+                  ? "text-terracotta-600 font-bold"
+                  : "text-warm-500 hover:text-warm-900"
+              )}
             >
-              <div className="p-1 rounded-lg transition-all relative">
-                <MessageSquareText className="h-5 w-5 text-terracotta-600" />
+              <div
+                className={cn(
+                  "p-1 rounded-lg transition-all relative",
+                  pathname.startsWith("/floreria/omnichannel") ? "bg-terracotta-100/80 text-terracotta-700" : ""
+                )}
+              >
+                <MessageSquareText className="h-5 w-5" />
                 <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               </div>
-              <span className="text-[10px] mt-0.5 tracking-tight font-medium">Mensajes</span>
-            </button>
+              <span className="text-[10px] mt-0.5 tracking-tight">Mensajes</span>
+            </Link>
 
             {/* 4. Pedidos */}
             <Link
@@ -168,19 +175,27 @@ export default function MobileBottomNav() {
               <span className="text-[10px] mt-0.5 tracking-tight">POS</span>
             </Link>
 
-            {/* Carissma: Mensajes (Meta Business Suite) */}
-            <button
-              type="button"
-              onClick={() => openMetaBusinessSuite("carissma")}
-              className="flex flex-col items-center justify-center min-h-[48px] min-w-[48px] py-1 px-2 rounded-xl transition-all active:scale-95 touch-manipulation relative text-warm-500 hover:text-warm-900"
-              title="Abrir Meta Business Suite (Bandeja de Mensajes)"
+            {/* Carissma: Mensajes (Hub Meta Business Suite) */}
+            <Link
+              href="/carissma/omnichannel"
+              className={cn(
+                "flex flex-col items-center justify-center min-h-[48px] min-w-[48px] py-1 px-2 rounded-xl transition-all active:scale-95 touch-manipulation relative",
+                pathname.startsWith("/carissma/omnichannel")
+                  ? "text-amberGold-700 font-bold"
+                  : "text-warm-500 hover:text-warm-900"
+              )}
             >
-              <div className="p-1 rounded-lg transition-all relative">
-                <MessageSquareText className="h-5 w-5 text-amberGold-600" />
+              <div
+                className={cn(
+                  "p-1 rounded-lg transition-all relative",
+                  pathname.startsWith("/carissma/omnichannel") ? "bg-amberGold-100/80 text-amberGold-700" : ""
+                )}
+              >
+                <MessageSquareText className="h-5 w-5" />
                 <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               </div>
-              <span className="text-[10px] mt-0.5 tracking-tight font-medium">Mensajes</span>
-            </button>
+              <span className="text-[10px] mt-0.5 tracking-tight">Mensajes</span>
+            </Link>
 
             {/* Carissma: Calendario & Rentas */}
             <Link

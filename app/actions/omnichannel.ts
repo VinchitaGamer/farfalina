@@ -2205,7 +2205,12 @@ export async function syncHistoricalConversationsAction(
 
       // Upsert CRMClient
       await prisma.cRMClient.upsert({
-        where: { phone: participantId },
+        where: {
+          crmclient_phone_env_unique: {
+            phone: participantId,
+            environment: env,
+          },
+        },
         update: {
           name: clientName,
           notes: `Origen: INSTAGRAM | Canal: Instagram Direct | IGSID: ${participantId}`,
@@ -2213,6 +2218,7 @@ export async function syncHistoricalConversationsAction(
         create: {
           name: clientName,
           phone: participantId,
+          environment: env,
           notes: `Origen: INSTAGRAM | Canal: Instagram Direct | IGSID: ${participantId}`,
         },
       }).catch(() => {});

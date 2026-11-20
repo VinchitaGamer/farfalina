@@ -103,7 +103,7 @@ export default function OrdersView() {
   const handleAdvanceStatus = async (booking: BookingItem, nextStatus: BookingItem["rentalStatus"]) => {
     const res = await updateRentalStatusAction(booking.id, nextStatus);
     if (res.success) {
-      toast.success(`Alquiler ${booking.contractNumber} avanzado a: "${nextStatus}"`);
+      toast.success(`Alquiler ${booking.contractNumber} actualizado a: "${nextStatus}"`);
       loadAll();
     } else {
       toast.error(res.error || "Error al actualizar estado");
@@ -124,6 +124,7 @@ export default function OrdersView() {
     const res = await deleteRentalBookingAction(booking.id);
     if (res.success) {
       toast.success(`Alquiler ${booking.contractNumber} eliminado y prenda liberada.`);
+      setSelectedDayEvents(null);
       loadAll();
     } else {
       toast.error(res.error || "No se pudo eliminar el alquiler.");
@@ -255,6 +256,7 @@ export default function OrdersView() {
           handleAdvanceStatus={handleAdvanceStatus}
           handleOpenInspectionModal={setInspectingBooking}
           setSelectedContractBooking={setSelectedContractBooking}
+          onDeleteBooking={handleDeleteBooking}
         />
       )}
 
@@ -265,6 +267,8 @@ export default function OrdersView() {
           selectedDayEvents={selectedDayEvents}
           setSelectedDayEvents={setSelectedDayEvents}
           getBookingsForDay={getBookingsForDay}
+          setSelectedContractBooking={setSelectedContractBooking}
+          onDeleteBooking={handleDeleteBooking}
         />
       )}
 

@@ -45,11 +45,16 @@ const UpdateDressSchema = z.object({
 export type UpdateDressInput = z.infer<typeof UpdateDressSchema>;
 
 const UpdateCarissmaConfigSchema = z.object({
-  defaultRentalDays: z.number().int().min(1, "Los días de alquiler deben ser al menos 1"),
-  defaultGuaranteePercent: z.number().min(0).max(100, "El porcentaje de garantía debe estar entre 0 y 100"),
-  decayRatePerUsage: z.number().min(0).max(50, "La tasa de depreciación debe estar entre 0% y 50%"),
-  minPriceFloorPercent: z.number().min(10).max(100, "El piso mínimo debe ser al menos 10%"),
-  lateFeePerDay: z.number().min(0, "La penalización diaria no puede ser negativa"),
+  defaultRentalDays: z.number().int().min(1, "Los días de alquiler deben ser al menos 1").optional(),
+  defaultGuaranteePercent: z.number().min(0).max(100, "El porcentaje de garantía debe estar entre 0 y 100").optional(),
+  decayRatePerUsage: z.number().min(0).max(50, "La tasa de depreciación debe estar entre 0% y 50%").optional(),
+  minPriceFloorPercent: z.number().min(10).max(100, "El piso mínimo debe ser al menos 10%").optional(),
+  lateFeePerDay: z.number().min(0, "La penalización diaria no puede ser negativa").optional(),
+  storeName: z.string().optional().nullable(),
+  storeSubtitle: z.string().optional().nullable(),
+  storeAddress: z.string().optional().nullable(),
+  storeCity: z.string().optional().nullable(),
+  storePhone: z.string().optional().nullable(),
 });
 
 export type UpdateCarissmaConfigInput = z.infer<typeof UpdateCarissmaConfigSchema>;
@@ -302,7 +307,16 @@ export async function updateCarissmaConfigAction(rawInput: UpdateCarissmaConfigI
       update: parsed.data,
       create: {
         id: "default",
-        ...parsed.data,
+        defaultRentalDays: parsed.data.defaultRentalDays ?? 3,
+        defaultGuaranteePercent: parsed.data.defaultGuaranteePercent ?? 30.0,
+        decayRatePerUsage: parsed.data.decayRatePerUsage ?? 5.0,
+        minPriceFloorPercent: parsed.data.minPriceFloorPercent ?? 40.0,
+        lateFeePerDay: parsed.data.lateFeePerDay ?? 50.0,
+        storeName: parsed.data.storeName ?? null,
+        storeSubtitle: parsed.data.storeSubtitle ?? null,
+        storeAddress: parsed.data.storeAddress ?? null,
+        storeCity: parsed.data.storeCity ?? null,
+        storePhone: parsed.data.storePhone ?? null,
       },
     });
 
@@ -444,14 +458,19 @@ export async function createRentalBookingAction(rawInput: CreateRentalBookingInp
         });
       }
 
-      // 5. Sync or create CRM Client record
+      // 5. Sync or create CRM Client record strictly isolated to Carissma environment
       const sanitized = sanitizeClientPhoneAndName(clientPhone || "", clientName);
       const cleanPhone = sanitized.phone;
       const cleanClientName = sanitized.name;
 
       if (cleanPhone && cleanPhone.length >= 6) {
         const existingClient = await tx.cRMClient.findUnique({
-          where: { phone: cleanPhone },
+          where: {
+            crmclient_phone_env_unique: {
+              phone: cleanPhone,
+              environment: "carissma",
+            },
+          },
         });
 
         if (existingClient) {
@@ -472,6 +491,7 @@ export async function createRentalBookingAction(rawInput: CreateRentalBookingInp
             data: {
               name: cleanClientName,
               phone: cleanPhone,
+              environment: "carissma",
               purchaseCount: 1,
               totalSpent: rentalPrice,
               loyaltyTier: "Bronce",
@@ -519,11 +539,27 @@ export async function updateRentalStatusAction(
         data: { rentalStatus: newStatus },
       });
 
-      // Mirror dress status
-      if (newStatus === "Entregado") {
+      const wasBeforeDelivery =
+        booking.rentalStatus === "Reservado" || booking.rentalStatus === "En Prueba";
+
+      // Mirror dress status cleanly across both forward and backward transitions
+      if (newStatus === "Reservado" || newStatus === "En Prueba") {
         await tx.dress.update({
           where: { id: booking.dressId },
-          data: { status: "En Uso", timesUsed: { increment: 1 } },
+          data: { status: "Reservado" },
+        });
+      } else if (newStatus === "Entregado") {
+        await tx.dress.update({
+          where: { id: booking.dressId },
+          data: {
+            status: "En Uso",
+            ...(wasBeforeDelivery ? { timesUsed: { increment: 1 } } : {}),
+          },
+        });
+      } else if (newStatus === "Devuelto / Revisión") {
+        await tx.dress.update({
+          where: { id: booking.dressId },
+          data: { status: "En Lavandería" },
         });
       } else if (newStatus === "En Lavandería") {
         await tx.dress.update({
@@ -640,19 +676,75 @@ export async function deleteRentalBookingAction(id: string): Promise<ActionRespo
     }
 
     const booking = await prisma.rentalBooking.findUnique({ where: { id } });
-    if (booking) {
-      // Liberate dress if reserved
-      await prisma.dress.update({
-        where: { id: booking.dressId },
-        data: { status: "Disponible" },
-      });
-      await prisma.rentalBooking.delete({ where: { id } });
+    if (!booking) {
+      return { success: false, error: "Reserva no encontrada o ya eliminada", code: "NOT_FOUND" };
     }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Delete the rental booking
+      await tx.rentalBooking.delete({ where: { id } });
+
+      // 2. Revert open shift buckets if booking belonged to an Open shift
+      if (booking.shiftId) {
+        const shift = await tx.carissmaCashShift.findUnique({ where: { id: booking.shiftId } });
+        if (shift && shift.status === "Open") {
+          await tx.carissmaCashShift.update({
+            where: { id: shift.id },
+            data: {
+              totalSalesCash:
+                booking.paymentMethod === "Efectivo"
+                  ? Math.max(0, shift.totalSalesCash - booking.rentalPrice)
+                  : undefined,
+              totalSalesQR:
+                booking.paymentMethod === "QR"
+                  ? Math.max(0, shift.totalSalesQR - booking.rentalPrice)
+                  : undefined,
+              totalSalesCard:
+                booking.paymentMethod === "Tarjeta"
+                  ? Math.max(0, shift.totalSalesCard - booking.rentalPrice)
+                  : undefined,
+              totalGuaranteesInCustody:
+                booking.guaranteeStatus === "En Custodia"
+                  ? Math.max(0, shift.totalGuaranteesInCustody - booking.guaranteeAmount)
+                  : undefined,
+            },
+          });
+        }
+      }
+
+      // 3. Liberate dress back to Disponible if no other active booking exists for it
+      const otherActive = await tx.rentalBooking.findFirst({
+        where: {
+          dressId: booking.dressId,
+          rentalStatus: { not: "Finalizado" },
+        },
+      });
+
+      if (!otherActive) {
+        await tx.dress.update({
+          where: { id: booking.dressId },
+          data: { status: "Disponible" },
+        });
+      }
+    });
 
     return { success: true, data: { id } };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Error al eliminar reserva";
     return { success: false, error: errorMessage, code: "BOOKING_DELETE_ERROR" };
+  }
+}
+
+export async function deleteCarissmaExpenseAction(id: string): Promise<ActionResponse> {
+  try {
+    if (!id) {
+      return { success: false, error: "ID de gasto requerido", code: "VALIDATION_ERROR" };
+    }
+    await prisma.carissmaExpense.delete({ where: { id } });
+    return { success: true, data: { id } };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "Error al eliminar gasto";
+    return { success: false, error: errorMessage, code: "EXPENSE_DELETE_ERROR" };
   }
 }
 

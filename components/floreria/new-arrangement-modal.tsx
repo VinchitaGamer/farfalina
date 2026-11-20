@@ -1,25 +1,15 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, Sparkles, Plus, Trash2, Image, Package, Check, Tag } from "lucide-react";
-import { createArrangementAction, getRawIngredientsAction } from "@/app/actions/arrangements";
-import { formatCurrency } from "@/lib/utils";
+import { X, Sparkles, Plus, Image, Check, Tag } from "lucide-react";
+import { createArrangementAction } from "@/app/actions/arrangements";
 import { toast } from "@/components/ui/toast";
 
-interface RawIngredientItem {
-  id: string;
-  name: string;
-  type: string;
-  available: number;
-  unit: string;
-  costPerUnit: number;
-}
-
-interface NewArrangementModalProps {
+type NewArrangementModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-}
+};
 
 const STOCK_IMAGES = [
   { label: "Rosas Rojas Deluxe", url: "https://images.unsplash.com/photo-1561181286-d3fee7d55364?auto=format&fit=crop&w=800&q=80" },
@@ -29,29 +19,20 @@ const STOCK_IMAGES = [
 ];
 
 export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewArrangementModalProps) {
-  const [ingredients, setIngredients] = useState<RawIngredientItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Dynamic Arrangement Categories
   const DEFAULT_ARR_CATEGORIES = ["Rosas", "Girasoles", "Arreglos Mixtos", "Insumos & Jarrones"];
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCatName, setNewCatName] = useState("");
 
-  // Form Fields
   const [name, setName] = useState("");
   const [category, setCategory] = useState<string>("Rosas");
   const [price, setPrice] = useState<number | string>(250);
   const [featured, setFeatured] = useState(false);
   const [image, setImage] = useState(STOCK_IMAGES[0].url);
   const [description, setDescription] = useState("");
-
-
-  // Recipe items selected & Bento Grid controls
-  const [recipe, setRecipe] = useState<{ rawIngredientId: string; quantityNeeded: number }[]>([]);
-  const [recipeCategory, setRecipeCategory] = useState<string>("Todos");
-  const [recipeSearch, setRecipeSearch] = useState<string>("");
 
   useEffect(() => {
     try {
@@ -62,9 +43,7 @@ export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewA
     } catch {}
   }, []);
 
-  const allCategories = Array.from(
-    new Set([...DEFAULT_ARR_CATEGORIES, ...customCategories])
-  );
+  const allCategories = Array.from(new Set([...DEFAULT_ARR_CATEGORIES, ...customCategories]));
 
   const handleAddCategory = () => {
     const trimmed = newCatName.trim();
@@ -97,60 +76,17 @@ export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewA
     toast.success(`Categoría "${catToDelete}" eliminada.`);
   };
 
-  useEffect(() => {
-    if (isOpen) {
-      loadIngredients();
-    }
-  }, [isOpen]);
-
-  const loadIngredients = async () => {
-    const res = await getRawIngredientsAction();
-    if (res.success && Array.isArray(res.data)) {
-      setIngredients(res.data as RawIngredientItem[]);
-    }
-  };
-
   if (!isOpen) return null;
-
-  const addIngredientToRecipe = (ingredientId: string) => {
-    setRecipe((prev) => {
-      const existing = prev.find((r) => r.rawIngredientId === ingredientId);
-      if (existing) {
-        return prev.map((r) =>
-          r.rawIngredientId === ingredientId ? { ...r, quantityNeeded: r.quantityNeeded + 1 } : r
-        );
-      }
-      return [...prev, { rawIngredientId: ingredientId, quantityNeeded: 1 }];
-    });
-  };
-
-  const updateRecipeQty = (ingredientId: string, qty: number) => {
-    if (qty <= 0) {
-      setRecipe((prev) => prev.filter((r) => r.rawIngredientId !== ingredientId));
-      return;
-    }
-    setRecipe((prev) =>
-      prev.map((r) => (r.rawIngredientId === ingredientId ? { ...r, quantityNeeded: qty } : r))
-    );
-  };
-
-  // Filtered ingredients for Bento Grid
-  const filteredIngredients = ingredients.filter((i) => {
-    const matchesCategory = recipeCategory === "Todos" || i.type === recipeCategory;
-    const matchesSearch = recipeSearch.trim() === "" || i.name.toLowerCase().includes(recipeSearch.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
-
-  // Calculate total cost of selected ingredients
-  const totalCost = recipe.reduce((acc, curr) => {
-    const ing = ingredients.find((i) => i.id === curr.rawIngredientId);
-    return acc + (ing ? ing.costPerUnit * curr.quantityNeeded : 0);
-  }, 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !description.trim()) {
-      setError("Por favor completa los campos requeridos.");
+    if (!name.trim()) {
+      setError("Por favor ingresa el nombre del arreglo.");
+      return;
+    }
+    const numPrice = Number(price);
+    if (!numPrice || numPrice <= 0) {
+      setError("Ingresa un precio de venta válido mayor a 0.");
       return;
     }
 
@@ -158,18 +94,21 @@ export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewA
     setError(null);
 
     const res = await createArrangementAction({
-      name,
+      name: name.trim(),
       category,
-      price: Number(price),
+      price: numPrice,
       featured,
-      image,
-      description,
-      recipeItems: recipe,
+      image: image.trim() || STOCK_IMAGES[0].url,
+      description: description.trim() || "Arreglo floral Florería Farfalina",
+      recipeItems: [],
     });
 
     setLoading(false);
 
     if (res.success) {
+      toast.success("¡Arreglo creado y agregado al catálogo!");
+      setName("");
+      setDescription("");
       onSuccess();
       onClose();
     } else {
@@ -179,7 +118,7 @@ export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewA
 
   return (
     <div className="fixed inset-0 z-50 bg-warm-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl border border-warm-200 shadow-2xl max-w-2xl w-full p-6 space-y-5 animate-in fade-in zoom-in duration-200 max-h-[85dvh] overflow-y-auto">
+      <div className="bg-white rounded-3xl border border-warm-200 shadow-2xl max-w-xl w-full p-6 space-y-5 animate-in fade-in zoom-in duration-200 max-h-[88dvh] overflow-y-auto">
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-3 border-b border-warm-200">
           <div className="flex items-center gap-2">
@@ -187,11 +126,12 @@ export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewA
               <Sparkles className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-bold text-base text-warm-900">Crear Nuevo Arreglo Combinado</h3>
-              <p className="text-xs text-warm-500">Combina flores base, follaje y recipientes con descuento de insumos.</p>
+              <h3 className="font-bold text-base text-warm-900">Crear Nuevo Arreglo Floral</h3>
+              <p className="text-xs text-warm-500">Define nombre, categoría, precio de venta y fotografía del catálogo.</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 text-warm-400 hover:text-warm-700 rounded-xl hover:bg-warm-100 transition-colors touch-manipulation"
             aria-label="Cerrar modal"
@@ -214,7 +154,7 @@ export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewA
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Ej. Ramos Rosas y Girasoles Amor..."
+                placeholder="Ej. Ramo Rosas y Girasoles..."
                 className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-base sm:text-xs md:text-sm text-warm-900 focus:outline-none focus:border-terracotta-500 font-medium"
                 required
               />
@@ -312,7 +252,6 @@ export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewA
               />
             </div>
 
-
             <div className="space-y-1 flex flex-col justify-end">
               <label className="flex items-center gap-2 cursor-pointer p-2.5 min-h-[44px] bg-warm-50 border border-warm-200 rounded-xl">
                 <input
@@ -321,27 +260,26 @@ export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewA
                   onChange={(e) => setFeatured(e.target.checked)}
                   className="rounded border-warm-300 text-terracotta-600 focus:ring-terracotta-500 h-5 w-5"
                 />
-                <span className="text-xs font-bold text-warm-800">Destacar en Catálogo Público</span>
+                <span className="text-xs font-bold text-warm-800">Destacar en Catálogo</span>
               </label>
             </div>
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-warm-800">Descripción *</label>
+            <label className="text-xs font-bold text-warm-800">Descripción</label>
             <textarea
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Detalles del diseño floral, colores y presentación..."
               className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-base sm:text-xs md:text-sm text-warm-900 focus:outline-none focus:border-terracotta-500 font-medium"
-              required
             />
           </div>
 
           {/* Preset Images Selection */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-warm-800 flex items-center gap-1">
-              <Image className="h-3.5 w-3.5 text-terracotta-600" /> Imagen del Arreglo (Selecciona o escribe URL)
+              <Image className="h-3.5 w-3.5 text-terracotta-600" /> Imagen del Arreglo (Selecciona o pega URL)
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {STOCK_IMAGES.map((img, idx) => (
@@ -350,7 +288,9 @@ export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewA
                   key={idx}
                   onClick={() => setImage(img.url)}
                   className={`p-2 min-h-[38px] rounded-xl border text-[11px] font-semibold text-center transition-all touch-manipulation active:scale-95 ${
-                    image === img.url ? "border-terracotta-500 bg-terracotta-50 text-terracotta-700 shadow-sm font-bold" : "border-warm-200 hover:bg-warm-50 text-warm-600"
+                    image === img.url
+                      ? "border-terracotta-500 bg-terracotta-50 text-terracotta-700 shadow-sm font-bold"
+                      : "border-warm-200 hover:bg-warm-50 text-warm-600"
                   }`}
                 >
                   {img.label}
@@ -363,121 +303,6 @@ export default function NewArrangementModal({ isOpen, onClose, onSuccess }: NewA
               onChange={(e) => setImage(e.target.value)}
               className="w-full p-2.5 text-base sm:text-xs font-mono bg-warm-50 border border-warm-200 rounded-xl text-warm-700 focus:outline-none focus:border-terracotta-500"
             />
-          </div>
-
-          {/* Bento Grid Recipe Builder for All Insumos */}
-          <div className="p-4 bg-warm-50/90 border border-warm-200 rounded-2xl space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-warm-200 pb-2">
-              <div className="flex items-center gap-1.5 text-warm-900 font-bold text-xs">
-                <Package className="h-4 w-4 text-terracotta-600" />
-                <span>Bento Grid: Receta de Insumos Disponibles en Inventario</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-warm-500">Costo Materiales:</span>
-                <span className="font-mono font-bold text-terracotta-700 bg-terracotta-50 px-2 py-0.5 rounded border border-terracotta-200">
-                  {formatCurrency(totalCost)}
-                </span>
-              </div>
-            </div>
-
-            {/* Bento Filter & Search Controls */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-                {["Todos", ...Array.from(new Set(ingredients.map((i) => i.type).filter(Boolean)))].map((cat) => (
-                  <button
-                    type="button"
-                    key={cat}
-                    onClick={() => {
-                      setRecipeCategory(cat);
-                    }}
-                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors whitespace-nowrap ${
-                      recipeCategory === cat
-                        ? "bg-terracotta-500 text-white"
-                        : "bg-white text-warm-700 hover:bg-warm-100 border border-warm-200"
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-
-              <input
-                type="text"
-                value={recipeSearch}
-                onChange={(e) => setRecipeSearch(e.target.value)}
-                placeholder="Buscar insumo..."
-                className="p-2 text-base sm:text-xs bg-white border border-warm-200 rounded-lg text-warm-900 focus:outline-none focus:border-terracotta-500 w-full sm:w-44"
-              />
-            </div>
-
-            {/* Bento Grid Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
-              {filteredIngredients.map((ing) => {
-                const recipeItem = recipe.find((r) => r.rawIngredientId === ing.id);
-                const isSelected = !!recipeItem;
-                const qty = recipeItem ? recipeItem.quantityNeeded : 0;
-
-                return (
-                  <div
-                    key={ing.id}
-                    className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between space-y-2 ${
-                      isSelected
-                        ? "bg-terracotta-50/70 border-terracotta-400 shadow-sm"
-                        : "bg-white border-warm-200 hover:border-warm-300"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-1">
-                      <div>
-                        <span className="px-1.5 py-0.5 text-[9px] font-bold bg-warm-100 text-warm-700 rounded">
-                          {ing.type}
-                        </span>
-                        <p className="text-xs font-bold text-warm-900 mt-1 line-clamp-1">{ing.name}</p>
-                      </div>
-                      {isSelected && (
-                        <span className="p-0.5 bg-terracotta-500 text-white rounded-full">
-                          <Check className="h-3 w-3" />
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between text-[10px] text-warm-500">
-                      <span>Stock: <strong className="text-warm-800">{ing.available} {ing.unit}</strong></span>
-                      <span className="font-mono text-warm-700">{formatCurrency(ing.costPerUnit)}/u</span>
-                    </div>
-
-                    <div className="pt-1.5 border-t border-warm-200/60 flex items-center justify-between">
-                      {isSelected ? (
-                        <div className="flex items-center justify-between w-full bg-white rounded-lg p-0.5 border border-terracotta-300">
-                          <button
-                            type="button"
-                            onClick={() => updateRecipeQty(ing.id, qty - 1)}
-                            className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-warm-600 hover:bg-warm-100 rounded active:scale-95 touch-manipulation"
-                          >
-                            <Trash2 className="h-3.5 w-3.5 text-rose-500" />
-                          </button>
-                          <span className="font-bold text-xs text-terracotta-800 px-2">{qty}</span>
-                          <button
-                            type="button"
-                            onClick={() => addIngredientToRecipe(ing.id)}
-                            className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-warm-600 hover:bg-warm-100 rounded active:scale-95 touch-manipulation"
-                          >
-                            <Plus className="h-3.5 w-3.5 text-terracotta-600" />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => addIngredientToRecipe(ing.id)}
-                          className="w-full min-h-[38px] py-1 text-[11px] font-bold bg-warm-100 hover:bg-terracotta-500 hover:text-white text-warm-800 rounded-lg transition-all flex items-center justify-center gap-1 active:scale-95 touch-manipulation"
-                        >
-                          <Plus className="h-3.5 w-3.5" /> Agregar
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           </div>
 
           <div className="pt-3 border-t border-warm-200 flex items-center justify-end gap-2">

@@ -40,6 +40,13 @@ export default function PricingEngineView() {
   const [defaultRentalDays, setDefaultRentalDays] = useState<number>(3);
   const [defaultGuaranteePercent, setDefaultGuaranteePercent] = useState<number>(30.0);
 
+  // Boutique info for official PDF rental contracts
+  const [storeName, setStoreName] = useState("CARISSMA");
+  const [storeSubtitle, setStoreSubtitle] = useState("Alquiler de Vestidos Exclusivos & Asesoría de Imagen");
+  const [storeAddress, setStoreAddress] = useState("");
+  const [storeCity, setStoreCity] = useState("La Paz, Bolivia");
+  const [storePhone, setStorePhone] = useState("");
+
   useEffect(() => {
     loadData();
   }, []);
@@ -58,12 +65,22 @@ export default function PricingEngineView() {
         lateFeePerDay?: number;
         defaultRentalDays?: number;
         defaultGuaranteePercent?: number;
+        storeName?: string | null;
+        storeSubtitle?: string | null;
+        storeAddress?: string | null;
+        storeCity?: string | null;
+        storePhone?: string | null;
       };
       setDecayRate(c.decayRatePerUsage ?? 5.0);
       setMinFloorPercent(c.minPriceFloorPercent ?? 40.0);
       setLateFeePerDay(c.lateFeePerDay ?? 50.0);
       setDefaultRentalDays(c.defaultRentalDays ?? 3);
       setDefaultGuaranteePercent(c.defaultGuaranteePercent ?? 30.0);
+      setStoreName(c.storeName?.trim() || "CARISSMA");
+      setStoreSubtitle(c.storeSubtitle?.trim() || "Alquiler de Vestidos Exclusivos & Asesoría de Imagen");
+      setStoreAddress(c.storeAddress?.trim() || "");
+      setStoreCity(c.storeCity?.trim() || "La Paz, Bolivia");
+      setStorePhone(c.storePhone?.trim() || "");
     }
 
     if (dressesRes.success && Array.isArray(dressesRes.data)) {
@@ -96,6 +113,11 @@ export default function PricingEngineView() {
       decayRatePerUsage: Number(decayRate),
       minPriceFloorPercent: Number(minFloorPercent),
       lateFeePerDay: Number(lateFeePerDay),
+      storeName: storeName.trim() || "CARISSMA",
+      storeSubtitle: storeSubtitle.trim() || "Alquiler de Vestidos Exclusivos & Asesoría de Imagen",
+      storeAddress: storeAddress.trim(),
+      storeCity: storeCity.trim() || "La Paz, Bolivia",
+      storePhone: storePhone.trim(),
     });
 
     if (res.success) {
@@ -341,13 +363,72 @@ export default function PricingEngineView() {
               />
             </div>
 
+            <div className="pt-3 border-t border-warm-200 space-y-3">
+              <div>
+                <h4 className="text-xs font-bold text-amberGold-900">Datos de la Boutique (Contratos PDF)</h4>
+                <p className="text-[10px] text-warm-500">Se imprimen automáticamente en el encabezado de cada contrato.</p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-warm-700">Nombre de Marca</label>
+                <input
+                  type="text"
+                  value={storeName}
+                  onChange={(e) => setStoreName(e.target.value)}
+                  placeholder="CARISSMA"
+                  className="w-full p-2 bg-warm-50 border border-warm-200 rounded-xl text-xs font-semibold text-warm-900"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-warm-700">Subtítulo / Rubro</label>
+                <input
+                  type="text"
+                  value={storeSubtitle}
+                  onChange={(e) => setStoreSubtitle(e.target.value)}
+                  placeholder="Alquiler de Vestidos Exclusivos & Asesoría de Imagen"
+                  className="w-full p-2 bg-warm-50 border border-warm-200 rounded-xl text-xs text-warm-900"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-warm-700">Dirección de la Boutique</label>
+                <input
+                  type="text"
+                  value={storeAddress}
+                  onChange={(e) => setStoreAddress(e.target.value)}
+                  placeholder="Ej. Zona Sur, Calle 21..."
+                  className="w-full p-2 bg-warm-50 border border-warm-200 rounded-xl text-xs text-warm-900"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-warm-700">Ciudad</label>
+                  <input
+                    type="text"
+                    value={storeCity}
+                    onChange={(e) => setStoreCity(e.target.value)}
+                    placeholder="La Paz, Bolivia"
+                    className="w-full p-2 bg-warm-50 border border-warm-200 rounded-xl text-xs text-warm-900"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-warm-700">Teléfono / WhatsApp</label>
+                  <input
+                    type="text"
+                    value={storePhone}
+                    onChange={(e) => setStorePhone(e.target.value)}
+                    placeholder="(+591) 7XXXXXXX"
+                    className="w-full p-2 bg-warm-50 border border-warm-200 rounded-xl text-xs font-mono text-warm-900"
+                  />
+                </div>
+              </div>
+            </div>
+
             <button
               type="submit"
               disabled={savingConfig}
               className="w-full py-2.5 px-4 bg-amberGold-600 hover:bg-amberGold-700 text-white font-bold text-xs rounded-xl shadow-warm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
             >
               <Save className="h-4 w-4" />
-              {savingConfig ? "Guardando..." : "Guardar Políticas en DB"}
+              {savingConfig ? "Guardando..." : "Guardar Políticas y Datos en DB"}
             </button>
           </form>
         </div>

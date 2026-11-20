@@ -51,7 +51,7 @@ interface CRMSpecialEventItem {
 
 export default function CrmView() {
   const confirm = useConfirm();
-  const [crmTab, setCrmTab] = useState<"calendar" | "directory" | "campaigns">("calendar");
+  const [crmTab, setCrmTab] = useState<"calendar" | "directory" | "campaigns">("directory");
   const [clients, setClients] = useState<CRMClientItem[]>([]);
   const [events, setEvents] = useState<CRMSpecialEventItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,7 +82,7 @@ export default function CrmView() {
 
   const loadCRMData = async () => {
     setLoading(true);
-    const res = await getCRMDataAction();
+    const res = await getCRMDataAction("carissma");
     if (res.success && res.data) {
       const d = res.data as { clients?: CRMClientItem[]; events?: CRMSpecialEventItem[] };
       setClients(d.clients ?? []);
@@ -101,6 +101,7 @@ export default function CrmView() {
     const res = await createCRMClientAction({
       name: newName.trim(),
       phone: newPhone.trim(),
+      environment: "carissma",
       favoriteFlower: newColorPref.trim() || undefined,
       notes: newNotes.trim() || undefined,
     });
@@ -127,6 +128,7 @@ export default function CrmView() {
 
     const res = await createCRMSpecialEventAction({
       clientId: eventClientId,
+      environment: "carissma",
       title: eventTitle.trim(),
       eventType,
       eventDate,

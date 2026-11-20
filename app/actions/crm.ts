@@ -8,14 +8,18 @@ import { ActionResponse } from "@/types/action-response";
 // Schemas
 // -------------------------------------------------------------
 
+const EnvironmentEnum = z.enum(["farfalina", "carissma"]).default("farfalina");
+export type CRMEnvironment = z.infer<typeof EnvironmentEnum>;
+
 const CreateClientSchema = z.object({
   name: z.string().min(2, "El nombre es requerido"),
   phone: z.string().min(6, "El teléfono es requerido"),
+  environment: EnvironmentEnum.optional().default("farfalina"),
   favoriteFlower: z.string().optional(),
   notes: z.string().optional(),
 });
 
-export type CreateClientInput = z.infer<typeof CreateClientSchema>;
+export type CreateClientInput = z.input<typeof CreateClientSchema>;
 
 const UpdateClientSchema = z.object({
   id: z.string().min(1, "ID requerido"),
@@ -29,6 +33,7 @@ export type UpdateClientInput = z.infer<typeof UpdateClientSchema>;
 
 const CreateSpecialEventSchema = z.object({
   clientId: z.string().optional(),
+  environment: EnvironmentEnum.optional().default("farfalina"),
   title: z.string().min(2, "El título del evento es requerido"),
   eventType: z.string().min(1, "El tipo de evento es requerido"),
   eventDate: z.string().min(1, "La fecha del evento es requerida"),
@@ -36,7 +41,7 @@ const CreateSpecialEventSchema = z.object({
   promo: z.string().optional(),
 });
 
-export type CreateSpecialEventInput = z.infer<typeof CreateSpecialEventSchema>;
+export type CreateSpecialEventInput = z.input<typeof CreateSpecialEventSchema>;
 
 const ContentCampaignSchema = z.object({
   id: z.string().optional(),
@@ -76,17 +81,23 @@ export type LoyaltyConfigInput = z.infer<typeof LoyaltyConfigSchema>;
 // Server Actions
 // -------------------------------------------------------------
 
-export async function getCRMDataAction(): Promise<ActionResponse> {
+export async function getCRMDataAction(environment: "farfalina" | "carissma" = "farfalina"): Promise<ActionResponse> {
   try {
+    const env = environment === "carissma" ? "carissma" : "farfalina";
+
     const clients = await prisma.cRMClient.findMany({
+      where: { environment: env },
       include: {
-        events: true,
+        events: {
+          where: { environment: env },
+        },
         campaigns: true,
       },
       orderBy: { purchaseCount: "desc" },
     });
 
     const events = await prisma.cRMSpecialEvent.findMany({
+      where: { environment: env },
       include: { client: true },
       orderBy: { eventDate: "asc" },
     });
@@ -130,13 +141,16 @@ export async function getCRMDataAction(): Promise<ActionResponse> {
   }
 }
 
-
-
-export async function searchCRMClientsAction(query: string = ""): Promise<ActionResponse> {
+export async function searchCRMClientsAction(
+  query: string = "",
+  environment: "farfalina" | "carissma" = "farfalina"
+): Promise<ActionResponse> {
   try {
+    const env = environment === "carissma" ? "carissma" : "farfalina";
     const q = (query || "").trim();
     if (!q) {
       const clients = await prisma.cRMClient.findMany({
+        where: { environment: env },
         take: 8,
         orderBy: { purchaseCount: "desc" },
       });
@@ -145,8 +159,9 @@ export async function searchCRMClientsAction(query: string = ""): Promise<Action
 
     const clients = await prisma.cRMClient.findMany({
       where: {
+        environment: env,
         OR: [
-          { name: { contains: q } },
+          { name: { contains: q, mode: "insensitive" } },
           { phone: { contains: q } },
         ],
       },
@@ -218,7 +233,7 @@ export async function createCRMClientAction(rawInput: CreateClientInput): Promis
       };
     }
 
-    const { name, phone, favoriteFlower, notes } = parsed.data;
+    const { name, phone, environment, favoriteFlower, notes } = parsed.data;
     const cleanPhone = phone.replace(/\D/g, "");
     if (!cleanPhone || cleanPhone.length < 6) {
       return {
@@ -229,7 +244,12 @@ export async function createCRMClientAction(rawInput: CreateClientInput): Promis
     }
 
     const existing = await prisma.cRMClient.findUnique({
-      where: { phone: cleanPhone },
+      where: {
+        crmclient_phone_env_unique: {
+          phone: cleanPhone,
+          environment,
+        },
+      },
     });
 
     if (existing) {
@@ -251,6 +271,7 @@ export async function createCRMClientAction(rawInput: CreateClientInput): Promis
       data: {
         name: name.trim(),
         phone: cleanPhone,
+        environment,
         favoriteFlower: favoriteFlower?.trim() || null,
         notes: notes?.trim() || null,
         totalSpent: 0,
@@ -496,14 +517,15 @@ export async function createSpecialEventAction(rawInput: CreateSpecialEventInput
       };
     }
 
-    const { clientId, title, eventType, eventDate, description, promo } = parsed.data;
+    const { clientId, environment, title, eventType, eventDate, description, promo } = parsed.data;
 
     const newEvent = await prisma.cRMSpecialEvent.create({
       data: {
         clientId: clientId || null,
+        environment,
         title,
         eventType,
-        eventDate: new Date(eventDate),
+        eventDate: new Date(`${eventDate.split("T")[0]}T12:00:00.000Z`),
         description,
         promo,
       },

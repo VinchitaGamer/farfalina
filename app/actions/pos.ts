@@ -56,36 +56,7 @@ export async function processPOSSaleAction(rawInput: ProcessSaleInput): Promise<
     const ticketNumber = `TCK-${Date.now().toString().slice(-6)}`;
 
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Stock validation guard: calculate total requirements and ensure availability
-      const neededMap = new Map<string, number>();
-      for (const item of items) {
-        if (item.rawIngredientId) {
-          const current = neededMap.get(item.rawIngredientId) || 0;
-          neededMap.set(item.rawIngredientId, current + item.quantity);
-        }
-        if (item.recipeItems && item.recipeItems.length > 0) {
-          for (const ri of item.recipeItems) {
-            const current = neededMap.get(ri.rawIngredientId) || 0;
-            neededMap.set(ri.rawIngredientId, current + (ri.quantityNeeded * item.quantity));
-          }
-        }
-      }
-
-      for (const [ingredientId, quantityNeeded] of neededMap.entries()) {
-        const ingredient = await tx.rawIngredient.findUnique({
-          where: { id: ingredientId },
-        });
-        if (!ingredient) {
-          throw new Error(`Insumo floral con ID ${ingredientId} no encontrado.`);
-        }
-        if (ingredient.available < quantityNeeded) {
-          throw new Error(
-            `Stock insuficiente para "${ingredient.name}". Disponible: ${ingredient.available} ${ingredient.unit}, Requerido: ${quantityNeeded} ${ingredient.unit}.`
-          );
-        }
-      }
-
-      // 2. Create Ticket
+      // 1. Create Ticket (decoupled from mandatory recipe stock blocking)
       const ticket = await tx.pOSTicket.create({
         data: {
           ticketNumber,
@@ -107,19 +78,21 @@ export async function processPOSSaleAction(rawInput: ProcessSaleInput): Promise<
         },
       });
 
-      // 3. Deduct ingredient stock
-      for (const [ingredientId, quantityNeeded] of neededMap.entries()) {
-        await tx.rawIngredient.update({
-          where: { id: ingredientId },
-          data: {
-            available: {
-              decrement: quantityNeeded,
-            },
-          },
+      // 2. Non-blocking deduction only for direct rawIngredientId sales (if enough stock)
+      for (const item of items) {
+        if (!item.rawIngredientId) continue;
+        const ingredient = await tx.rawIngredient.findUnique({
+          where: { id: item.rawIngredientId },
         });
+        if (ingredient && ingredient.available >= item.quantity) {
+          await tx.rawIngredient.update({
+            where: { id: item.rawIngredientId },
+            data: { available: { decrement: item.quantity } },
+          });
+        }
       }
 
-      // 4. Update current active CashRegisterShift if open
+      // 3. Update current active CashRegisterShift if open
       const activeShift = await tx.cashRegisterShift.findFirst({
         where: { status: "Open" },
         orderBy: { createdAt: "desc" },
@@ -136,14 +109,19 @@ export async function processPOSSaleAction(rawInput: ProcessSaleInput): Promise<
         });
       }
 
-      // 4. Auto-update or create CRMClient for loyalty and customer directory
+      // 4. Auto-update or create CRMClient isolated to Farfalina environment
       const sanitized = sanitizeClientPhoneAndName(customerPhone || "", customerName?.trim() || "Cliente POS");
       const cleanPhone = sanitized.phone;
       const cleanClientName = sanitized.name;
 
       if (cleanPhone && cleanPhone.length >= 6) {
         const existingClient = await tx.cRMClient.findUnique({
-          where: { phone: cleanPhone },
+          where: {
+            crmclient_phone_env_unique: {
+              phone: cleanPhone,
+              environment: "farfalina",
+            },
+          },
         });
 
         if (existingClient) {
@@ -164,6 +142,7 @@ export async function processPOSSaleAction(rawInput: ProcessSaleInput): Promise<
             data: {
               name: cleanClientName,
               phone: cleanPhone,
+              environment: "farfalina",
               purchaseCount: 1,
               totalSpent: totalAmount,
               loyaltyTier: "Bronce",
@@ -172,7 +151,6 @@ export async function processPOSSaleAction(rawInput: ProcessSaleInput): Promise<
           });
         }
       }
-
 
       return ticket;
     });
@@ -357,38 +335,18 @@ export async function closeCashShiftAction(rawInput: CloseShiftInput): Promise<A
       orderBy: { createdAt: "asc" },
     });
 
-    let updatedShift: import("@prisma/client").CashRegisterShift | null = null;
-    try {
-      updatedShift = await prisma.cashRegisterShift.update({
-        where: { id: shiftId },
-        data: {
-          closingBalance: declaredCash,
-          declaredCash,
-          discrepancy,
-          cashierName,
-          status: "Closed",
-          notes: notes || "Cierre de caja completado con informe de arqueo",
-          closedAt: new Date(),
-        },
-      });
-    } catch (_prismaErr) {
-      // Fallback for stale HMR PrismaClient cache: raw SQLite query update
-      const nowIso = new Date().toISOString();
-      await prisma.$executeRawUnsafe(
-        `UPDATE CashRegisterShift SET closingBalance = ?, declaredCash = ?, discrepancy = ?, cashierName = ?, status = 'Closed', notes = ?, closedAt = ? WHERE id = ?`,
-        declaredCash,
+    const updatedShift = await prisma.cashRegisterShift.update({
+      where: { id: shiftId },
+      data: {
+        closingBalance: declaredCash,
         declaredCash,
         discrepancy,
         cashierName,
-        notes || "Cierre de caja completado con informe de arqueo",
-        nowIso,
-        shiftId
-      );
-
-      updatedShift = await prisma.cashRegisterShift.findUnique({
-        where: { id: shiftId },
-      });
-    }
+        status: "Closed",
+        notes: notes || "Cierre de caja completado con informe de arqueo",
+        closedAt: new Date(),
+      },
+    });
 
     return {
       success: true,

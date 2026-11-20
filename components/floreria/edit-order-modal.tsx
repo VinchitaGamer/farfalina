@@ -12,20 +12,25 @@ import {
   User,
   Sparkles,
   Save,
-  Loader2
+  Loader2,
+  Copy,
+  Check,
 } from "lucide-react";
 import { updateOrderAction, UpdateOrderInput } from "@/app/actions/logistics";
 import { formatCurrency } from "@/lib/utils";
+import { buildDeliveryWhatsAppMessage } from "@/lib/delivery-whatsapp";
 import { toast } from "@/components/ui/toast";
 
-export interface EditableOrder {
+export type EditableOrder = {
   id: string;
   orderNumber: string;
   clientName: string;
   clientPhone?: string | null;
   recipientName: string;
+  recipientPhone?: string | null;
   address: string;
   zone: string;
+  mapsUrl?: string | null;
   deliveryDate: string | Date;
   deliveryTime: string;
   status: "En preparación" | "En camino" | "Entregado";
@@ -35,113 +40,112 @@ export interface EditableOrder {
   total: number;
   paymentMethod?: string;
   dedicationMessage: string;
-}
+};
 
-interface EditOrderModalProps {
+type EditOrderModalProps = {
   isOpen: boolean;
   onClose: () => void;
   order: EditableOrder | null;
   onSaved: () => void;
-}
+};
 
-const ZONES = [
-  "Calacoto, Zona Sur",
-  "Achumani, Zona Sur",
-  "Obrajes, Zona Sur",
-  "San Miguel, Zona Sur",
-  "Los Pinos, Zona Sur",
-  "Cota Cota, Zona Sur",
-  "Irpavi, Zona Sur",
-  "Sopocachi",
-  "Centro, La Paz",
-  "Miraflores",
-  "San Pedro",
-  "El Alto",
-  "Tienda Central (Retiro)"
-];
-
-export default function EditOrderModal({
-  isOpen,
-  onClose,
-  order,
-  onSaved,
-}: EditOrderModalProps) {
+export default function EditOrderModal({ isOpen, onClose, order, onSaved }: EditOrderModalProps) {
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
   const [recipientName, setRecipientName] = useState("");
+  const [recipientPhone, setRecipientPhone] = useState("");
   const [deliveryType, setDeliveryType] = useState<"delivery" | "pickup">("delivery");
   const [address, setAddress] = useState("");
-  const [zone, setZone] = useState("Calacoto, Zona Sur");
+  const [zone, setZone] = useState("");
+  const [mapsUrl, setMapsUrl] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [deliveryTime, setDeliveryTime] = useState("");
   const [arrangementName, setArrangementName] = useState("");
-  const [salePrice, setSalePrice] = useState<number>(0);
-  const [deliveryFee, setDeliveryFee] = useState<number>(15);
+  const [salePrice, setSalePrice] = useState<string>("0");
+  const [deliveryFee, setDeliveryFee] = useState<string>("0");
   const [paymentMethod, setPaymentMethod] = useState<"Efectivo" | "QR" | "Tarjeta">("Efectivo");
   const [status, setStatus] = useState<"En preparación" | "En camino" | "Entregado">("En preparación");
   const [dedicationMessage, setDedicationMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
 
   useEffect(() => {
     if (order) {
       setClientName(order.clientName || "");
       setClientPhone(order.clientPhone || "");
       setRecipientName(order.recipientName || "");
-      
-      const isPickup = order.address?.includes("Retiro en Tienda") || order.deliveryFee === 0;
+      setRecipientPhone(order.recipientPhone || "");
+
+      const isPickup = Boolean(order.address?.includes("Retiro en Tienda"));
       setDeliveryType(isPickup ? "pickup" : "delivery");
       setAddress(order.address || "");
-      setZone(order.zone || "Calacoto, Zona Sur");
+      setZone(isPickup ? "" : order.zone || "");
+      setMapsUrl(order.mapsUrl || "");
 
-      // Format deliveryDate to YYYY-MM-DD
       const d = new Date(order.deliveryDate);
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, "0");
-      const dd = String(d.getDate()).padStart(2, "0");
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(d.getUTCDate()).padStart(2, "0");
       setDeliveryDate(`${yyyy}-${mm}-${dd}`);
 
-      setDeliveryTime(order.deliveryTime || "16:30 PM");
+      setDeliveryTime(order.deliveryTime || "");
       setArrangementName(order.arrangementName || "");
-      
+
       const calculatedSalePrice = order.salePrice || Math.max(0, order.total - (order.deliveryFee || 0));
-      setSalePrice(calculatedSalePrice);
-      setDeliveryFee(isPickup ? 0 : (order.deliveryFee ?? 15));
-      
+      setSalePrice(String(calculatedSalePrice));
+      setDeliveryFee(isPickup ? "0" : String(order.deliveryFee ?? 0));
+
       setPaymentMethod((order.paymentMethod as "Efectivo" | "QR" | "Tarjeta") || "Efectivo");
       setStatus(order.status || "En preparación");
       setDedicationMessage(order.dedicationMessage || "");
+      setCopiedWhatsApp(false);
     }
   }, [order, isOpen]);
 
   if (!isOpen || !order) return null;
 
-  const total = Number(salePrice || 0) + (deliveryType === "pickup" ? 0 : Number(deliveryFee || 0));
+  const numSalePrice = Number(salePrice) || 0;
+  const numDeliveryFee = deliveryType === "pickup" ? 0 : Number(deliveryFee) || 0;
+  const total = numSalePrice + numDeliveryFee;
 
   const handleDeliveryTypeChange = (type: "delivery" | "pickup") => {
     setDeliveryType(type);
     if (type === "pickup") {
-      setDeliveryFee(0);
-      setZone("Tienda Central (Retiro)");
-      if (!address || address.includes("Calacoto") || address.includes("calle")) {
-        setAddress("Retiro en Tienda Central / Farfalina");
-      }
-    } else {
-      if (deliveryFee === 0) setDeliveryFee(15);
-      if (zone.includes("Retiro")) setZone("Calacoto, Zona Sur");
+      setDeliveryFee("0");
+    } else if (address.includes("Retiro en Tienda")) {
+      setAddress("");
+    }
+  };
+
+  const handleCopyWhatsApp = async () => {
+    const text = buildDeliveryWhatsAppMessage({
+      orderNumber: order.orderNumber,
+      clientName: clientName || "Cliente Mostrador",
+      clientPhone,
+      recipientName: recipientName || clientName,
+      recipientPhone,
+      address: deliveryType === "pickup" ? "Retiro en Tienda / Local" : address,
+      zone: deliveryType === "pickup" ? "Tienda Central" : zone,
+      mapsUrl: deliveryType === "pickup" ? "" : mapsUrl,
+      deliveryDate,
+      deliveryTime,
+      arrangementName,
+      deliveryFee: numDeliveryFee,
+      deliveryType,
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedWhatsApp(true);
+      toast.success("Texto de despacho copiado para WhatsApp");
+      setTimeout(() => setCopiedWhatsApp(false), 2500);
+    } catch {
+      toast.error("No se pudo copiar al portapapeles");
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!clientName.trim()) {
-      toast.error("El nombre del cliente es requerido.");
-      return;
-    }
-    if (!recipientName.trim()) {
-      toast.error("El destinatario es requerido.");
-      return;
-    }
     if (!arrangementName.trim()) {
       toast.error("El nombre del arreglo es requerido.");
       return;
@@ -150,25 +154,26 @@ export default function EditOrderModal({
       toast.error("La fecha de entrega es requerida.");
       return;
     }
-    if (!dedicationMessage.trim()) {
-      toast.error("El mensaje de dedicatoria es requerido.");
-      return;
-    }
 
     setSaving(true);
     const payload: UpdateOrderInput = {
       id: order.id,
-      clientName: clientName.trim(),
+      clientName: clientName.trim() || "Cliente Mostrador",
       clientPhone: clientPhone.trim() || null,
-      recipientName: recipientName.trim(),
+      recipientName: recipientName.trim() || clientName.trim() || "Cliente Mostrador",
+      recipientPhone: recipientPhone.trim() || null,
       deliveryType,
-      address: deliveryType === "pickup" ? "Retiro en Tienda / Local" : address.trim(),
-      zone: deliveryType === "pickup" ? "Tienda Central" : zone,
+      address:
+        deliveryType === "pickup"
+          ? "Retiro en Tienda / Local"
+          : address.trim() || "Ver ubicación en Google Maps",
+      zone: deliveryType === "pickup" ? "Tienda Central" : zone.trim() || "Sin zona especificada",
+      mapsUrl: deliveryType === "pickup" ? null : mapsUrl.trim() || null,
       deliveryDate,
-      deliveryTime: deliveryTime.trim() || "16:30 PM",
+      deliveryTime: deliveryTime.trim() || "Por coordinar",
       arrangementName: arrangementName.trim(),
-      salePrice: Number(salePrice) || 0,
-      deliveryFee: deliveryType === "pickup" ? 0 : Number(deliveryFee) || 0,
+      salePrice: numSalePrice,
+      deliveryFee: numDeliveryFee,
       total,
       paymentMethod,
       dedicationMessage: dedicationMessage.trim(),
@@ -203,15 +208,26 @@ export default function EditOrderModal({
                   {order.orderNumber}
                 </span>
               </div>
-              <p className="text-xs text-warm-500">Modifica los detalles, destinatario o fecha del pedido emitido.</p>
+              <p className="text-xs text-warm-500">Modifica destinatario, teléfono, Maps, delivery, estado o montos.</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-warm-200/70 text-warm-500 rounded-full transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleCopyWhatsApp}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1"
+            >
+              {copiedWhatsApp ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">{copiedWhatsApp ? "Copiado" : "Copiar Delivery"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 hover:bg-warm-200/70 text-warm-500 rounded-full transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         {/* Form Body */}
@@ -231,7 +247,7 @@ export default function EditOrderModal({
                   }`}
                 >
                   <Truck className="h-3.5 w-3.5" />
-                  <span>Envío a Domicilio</span>
+                  <span>Domicilio</span>
                 </button>
                 <button
                   type="button"
@@ -243,7 +259,7 @@ export default function EditOrderModal({
                   }`}
                 >
                   <Store className="h-3.5 w-3.5" />
-                  <span>Retiro en Tienda</span>
+                  <span>Retiro Tienda</span>
                 </button>
               </div>
             </div>
@@ -263,81 +279,101 @@ export default function EditOrderModal({
           </div>
 
           {/* Section 2: Cliente & Destinatario */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="font-bold text-warm-700 block mb-1">Nombre del Cliente:</label>
+              <label className="font-bold text-warm-700 block mb-1">Nombre del Cliente (Opcional):</label>
               <div className="relative">
                 <User className="h-3.5 w-3.5 text-warm-400 absolute left-2.5 top-2.5" />
                 <input
                   type="text"
-                  required
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
-                  placeholder="Ej: Carlos Mendoza"
-                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden"
+                  placeholder="Ej: Cliente Mostrador"
+                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl"
                 />
               </div>
             </div>
 
             <div>
-              <label className="font-bold text-warm-700 block mb-1">Teléfono / WhatsApp:</label>
+              <label className="font-bold text-warm-700 block mb-1">Teléfono del Cliente (Opcional):</label>
               <div className="relative">
                 <Phone className="h-3.5 w-3.5 text-warm-400 absolute left-2.5 top-2.5" />
                 <input
                   type="text"
                   value={clientPhone}
                   onChange={(e) => setClientPhone(e.target.value)}
-                  placeholder="Ej: 77218392"
-                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden font-mono"
+                  placeholder="Opcional"
+                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl font-mono"
                 />
               </div>
             </div>
 
             <div>
-              <label className="font-bold text-warm-700 block mb-1">Destinatario:</label>
+              <label className="font-bold text-warm-700 block mb-1">Destinatario / Quién Recibe:</label>
               <div className="relative">
                 <User className="h-3.5 w-3.5 text-warm-400 absolute left-2.5 top-2.5" />
                 <input
                   type="text"
-                  required
                   value={recipientName}
                   onChange={(e) => setRecipientName(e.target.value)}
-                  placeholder="Ej: Andrea Quiroga"
-                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden font-medium"
+                  placeholder="Nombre de quien recibe..."
+                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl font-medium"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="font-bold text-warm-700 block mb-1">Teléfono del Destinatario (Para Delivery):</label>
+              <div className="relative">
+                <Phone className="h-3.5 w-3.5 text-warm-400 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  value={recipientPhone}
+                  onChange={(e) => setRecipientPhone(e.target.value)}
+                  placeholder="Celular de quien recibe..."
+                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl font-mono"
                 />
               </div>
             </div>
           </div>
 
-          {/* Section 3: Dirección & Zona */}
+          {/* Section 3: Dirección, Maps & Zona */}
           {deliveryType === "delivery" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="font-bold text-warm-700 block mb-1">Zona / Barrio:</label>
-                <select
-                  value={zone}
-                  onChange={(e) => setZone(e.target.value)}
-                  className="w-full p-2 bg-warm-50/50 border border-warm-200 rounded-xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden font-medium"
-                >
-                  {ZONES.map((z) => (
-                    <option key={z} value={z}>{z}</option>
-                  ))}
-                </select>
-              </div>
-
               <div>
                 <label className="font-bold text-warm-700 block mb-1">Dirección Exacta:</label>
                 <div className="relative">
                   <MapPin className="h-3.5 w-3.5 text-warm-400 absolute left-2.5 top-2.5" />
                   <input
                     type="text"
-                    required
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
-                    placeholder="Ej: Calle 15 de Calacoto Nº 450"
-                    className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden"
+                    placeholder="Calle, Av., Nro de puerta..."
+                    className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-warm-700 block mb-1">URL de Google Maps:</label>
+                <input
+                  type="url"
+                  value={mapsUrl}
+                  onChange={(e) => setMapsUrl(e.target.value)}
+                  placeholder="https://maps.app.goo.gl/..."
+                  className="w-full px-3 py-2 bg-warm-50/50 border border-warm-200 rounded-xl font-mono"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="font-bold text-warm-700 block mb-1">Zona / Barrio (Opcional):</label>
+                <input
+                  type="text"
+                  value={zone}
+                  onChange={(e) => setZone(e.target.value)}
+                  placeholder="Ej: Calacoto, Sopocachi, Miraflores..."
+                  className="w-full px-3 py-2 bg-warm-50/50 border border-warm-200 rounded-xl font-medium"
+                />
               </div>
             </div>
           )}
@@ -353,22 +389,21 @@ export default function EditOrderModal({
                   required
                   value={deliveryDate}
                   onChange={(e) => setDeliveryDate(e.target.value)}
-                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden font-medium"
+                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl font-medium"
                 />
               </div>
             </div>
 
             <div>
-              <label className="font-bold text-warm-700 block mb-1">Hora Programada:</label>
+              <label className="font-bold text-warm-700 block mb-1">Hora Programada (Libre):</label>
               <div className="relative">
                 <Clock className="h-3.5 w-3.5 text-warm-400 absolute left-2.5 top-2.5" />
                 <input
                   type="text"
-                  required
                   value={deliveryTime}
                   onChange={(e) => setDeliveryTime(e.target.value)}
-                  placeholder="Ej: 16:30 PM o 11:00 AM"
-                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden font-medium"
+                  placeholder="Ej: 18:30, En la noche 21:00..."
+                  className="w-full pl-8 pr-2.5 py-2 bg-warm-50/50 border border-warm-200 rounded-xl font-medium"
                 />
               </div>
             </div>
@@ -378,40 +413,38 @@ export default function EditOrderModal({
           <div className="p-3.5 bg-warm-50/60 rounded-2xl border border-warm-200 space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="sm:col-span-3">
-                <label className="font-bold text-warm-700 block mb-1">Nombre / Descripción del Arreglo:</label>
+                <label className="font-bold text-warm-700 block mb-1">Nombre / Descripción del Arreglo *:</label>
                 <input
                   type="text"
                   required
                   value={arrangementName}
                   onChange={(e) => setArrangementName(e.target.value)}
                   placeholder="Ej: Bouquet Especial de Rosas & Lisianthus"
-                  className="w-full px-3 py-2 bg-white border border-warm-200 rounded-xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden font-semibold"
+                  className="w-full px-3 py-2 bg-white border border-warm-200 rounded-xl font-semibold"
                 />
               </div>
 
               <div>
                 <label className="font-bold text-warm-700 block mb-1">Precio Arreglo (Bs):</label>
                 <input
-                  type="number"
-                  min="0"
-                  step="0.5"
+                  type="text"
+                  inputMode="decimal"
                   required
                   value={salePrice}
-                  onChange={(e) => setSalePrice(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3 py-2 bg-white border border-warm-200 rounded-xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden font-mono font-bold"
+                  onChange={(e) => setSalePrice(e.target.value.replace(/[^0-9.]/g, ""))}
+                  className="w-full px-3 py-2 bg-white border border-warm-200 rounded-xl font-mono font-bold"
                 />
               </div>
 
               <div>
-                <label className="font-bold text-warm-700 block mb-1">Costo Envío (Bs):</label>
+                <label className="font-bold text-warm-700 block mb-1">Costo Delivery (Bs):</label>
                 <input
-                  type="number"
-                  min="0"
-                  step="0.5"
+                  type="text"
+                  inputMode="decimal"
                   disabled={deliveryType === "pickup"}
-                  value={deliveryType === "pickup" ? 0 : deliveryFee}
-                  onChange={(e) => setDeliveryFee(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3 py-2 bg-white border border-warm-200 rounded-xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden font-mono font-bold disabled:bg-warm-100 disabled:text-warm-400"
+                  value={deliveryType === "pickup" ? "0" : deliveryFee}
+                  onChange={(e) => setDeliveryFee(e.target.value.replace(/[^0-9.]/g, ""))}
+                  className="w-full px-3 py-2 bg-white border border-warm-200 rounded-xl font-mono font-bold disabled:bg-warm-100 disabled:text-warm-400"
                 />
               </div>
 
@@ -420,7 +453,7 @@ export default function EditOrderModal({
                 <select
                   value={paymentMethod}
                   onChange={(e) => setPaymentMethod(e.target.value as "Efectivo" | "QR" | "Tarjeta")}
-                  className="w-full p-2 bg-white border border-warm-200 rounded-xl font-bold text-warm-900 focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden"
+                  className="w-full p-2 bg-white border border-warm-200 rounded-xl font-bold text-warm-900"
                 >
                   <option value="Efectivo">💵 Efectivo</option>
                   <option value="QR">📱 QR Simple</option>
@@ -431,25 +464,22 @@ export default function EditOrderModal({
 
             <div className="pt-2 border-t border-warm-200 flex items-center justify-between text-sm">
               <span className="font-bold text-warm-800">Total Calculado del Pedido:</span>
-              <span className="font-mono font-black text-base text-terracotta-700">
-                {formatCurrency(total)}
-              </span>
+              <span className="font-mono font-black text-base text-terracotta-700">{formatCurrency(total)}</span>
             </div>
           </div>
 
-          {/* Section 6: Mensaje Dedicatoria */}
+          {/* Section 6: Mensaje Dedicatoria (Opcional) */}
           <div>
             <label className="font-bold text-warm-700 block mb-1 flex items-center gap-1">
               <Sparkles className="h-3.5 w-3.5 text-terracotta-600" />
-              <span>Dedicatoria para Tarjeta Impresa:</span>
+              <span>Dedicatoria para Tarjeta Impresa (Opcional):</span>
             </label>
             <textarea
-              required
-              rows={3}
+              rows={2}
               value={dedicationMessage}
               onChange={(e) => setDedicationMessage(e.target.value)}
-              placeholder="Escribe aquí el mensaje para la tarjeta dedicatoria..."
-              className="w-full p-3 bg-warm-50/50 border border-warm-200 rounded-2xl focus:ring-2 focus:ring-terracotta-500 focus:outline-hidden font-serif italic text-xs"
+              placeholder="Opcional: escribe aquí el mensaje para la tarjeta..."
+              className="w-full p-3 bg-warm-50/50 border border-warm-200 rounded-2xl font-serif italic text-xs"
             />
           </div>
 

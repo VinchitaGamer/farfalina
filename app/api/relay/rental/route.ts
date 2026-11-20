@@ -194,7 +194,12 @@ export async function POST(req: NextRequest) {
 
       if (cleanPhone && cleanPhone.length >= 6) {
         const existingClient = await tx.cRMClient.findUnique({
-          where: { phone: cleanPhone },
+          where: {
+            crmclient_phone_env_unique: {
+              phone: cleanPhone,
+              environment: "carissma",
+            },
+          },
         });
 
         if (existingClient) {
@@ -215,6 +220,7 @@ export async function POST(req: NextRequest) {
             data: {
               name: cleanClientName,
               phone: cleanPhone,
+              environment: "carissma",
               purchaseCount: 1,
               totalSpent: rentalPrice,
               loyaltyTier: "Bronce",

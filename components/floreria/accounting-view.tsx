@@ -19,35 +19,71 @@ import {
   Search,
   Store,
   CreditCard,
-  Trash2
+  Trash2,
+  Download,
+  Copy,
+  ExternalLink,
+  ShoppingBag
 } from "lucide-react";
 import {
   getFinancialMetricsAction,
   createFinancialExpenseAction,
-  CreateFinancialExpenseInput
+  deleteFinancialExpenseAction,
+  deletePOSTicketAction,
 } from "@/app/actions/finances";
 import { getOrdersAction, deleteOrderAction } from "@/app/actions/logistics";
 import { formatCurrency } from "@/lib/utils";
+import { downloadExcelCsv } from "@/lib/export-csv";
+import { buildDeliveryWhatsAppMessage } from "@/lib/delivery-whatsapp";
 import { toast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import ShiftReportModal, { ShiftReportData } from "./shift-report-modal";
 
-interface ExpenseItem {
+type FinancialSummary = {
+  totalIncome: number;
+  totalPosSales: number;
+  totalOrderSales: number;
+  totalExpensesCategory: number;
+  totalMermaCost: number;
+  totalExpenses: number;
+  netProfit: number;
+};
+
+type ExpenseItem = {
   id: string;
   category: string;
   amount: number;
   description: string;
   expenseDate: string;
-}
+};
+
+type POSTicketItemRecord = {
+  id: string;
+  itemName: string;
+  quantity: number;
+  price: number;
+};
+
+type POSTicketRecord = {
+  id: string;
+  ticketNumber: string;
+  customerName: string;
+  paymentMethod: string;
+  totalAmount: number;
+  createdAt: string | Date;
+  ticketItems: POSTicketItemRecord[];
+};
 
 export interface OrderDeliveryItem {
   id: string;
   orderNumber: string;
   clientName: string;
-  clientPhone?: string;
+  clientPhone?: string | null;
   recipientName: string;
+  recipientPhone?: string | null;
   address: string;
   zone: string;
+  mapsUrl?: string | null;
   deliveryDate: string | Date;
   deliveryTime: string;
   status: "En preparación" | "En camino" | "Entregado";
@@ -70,11 +106,29 @@ export interface MermaLogItem {
   date: string;
 }
 
+type FinancialMetricsPayload = {
+  summary: FinancialSummary;
+  expenses: ExpenseItem[];
+  shifts: ShiftReportData[];
+  posTickets?: POSTicketRecord[];
+  topSellingProducts: { name: string; quantity: number; revenue: number }[];
+  topUsedIngredients: { name: string; type: string; unit: string; totalUsed: number; totalCost: number }[];
+  mermas: MermaLogItem[];
+};
+
+function isPickupOrder(order: Pick<OrderDeliveryItem, "address">): boolean {
+  return Boolean(order.address && order.address.toLowerCase().includes("retiro en tienda"));
+}
+
+function isHttpUrl(url?: string | null): boolean {
+  return Boolean(url && /^https?:\/\//i.test(url.trim()));
+}
+
 export default function AccountingView() {
   const { openCardPrinter } = useAppStore();
   const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"summary" | "orders" | "shifts" | "analytics">("summary");
+  const [activeTab, setActiveTab] = useState<"summary" | "orders" | "tickets" | "shifts" | "analytics">("summary");
   const [orders, setOrders] = useState<OrderDeliveryItem[]>([]);
   const [orderSearch, setOrderSearch] = useState("");
   const [orderStatusFilter, setOrderStatusFilter] = useState("Todos");
@@ -82,7 +136,7 @@ export default function AccountingView() {
   const [selectedOrderDetail, setSelectedOrderDetail] = useState<OrderDeliveryItem | null>(null);
 
   // Metrics Data State
-  const [summary, setSummary] = useState({
+  const [summary, setSummary] = useState<FinancialSummary>({
     totalIncome: 0,
     totalPosSales: 0,
     totalOrderSales: 0,
@@ -93,6 +147,7 @@ export default function AccountingView() {
   });
 
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
+  const [posTickets, setPosTickets] = useState<POSTicketRecord[]>([]);
   const [shifts, setShifts] = useState<ShiftReportData[]>([]);
   const [topProducts, setTopProducts] = useState<{ name: string; quantity: number; revenue: number }[]>([]);
   const [topIngredients, setTopIngredients] = useState<{ name: string; type: string; unit: string; totalUsed: number; totalCost: number }[]>([]);
@@ -124,19 +179,20 @@ export default function AccountingView() {
     ]);
 
     if (financesRes.success && financesRes.data) {
-      const { summary, expenses, shifts, topSellingProducts, topUsedIngredients, mermas } = financesRes.data as { summary: any, expenses: ExpenseItem[], shifts: ShiftReportData[], topSellingProducts: { name: string; quantity: number; revenue: number }[], topUsedIngredients: { name: string; type: string; unit: string; totalUsed: number; totalCost: number }[], mermas: MermaLogItem[] };
-      setSummary(summary);
-      setExpenses(expenses || []);
-      setShifts(shifts || []);
-      setTopProducts(topSellingProducts || []);
-      setTopIngredients(topUsedIngredients || []);
-      setMermas(mermas || []);
+      const payload = financesRes.data as FinancialMetricsPayload;
+      setSummary(payload.summary);
+      setExpenses(payload.expenses || []);
+      setPosTickets(payload.posTickets || []);
+      setShifts(payload.shifts || []);
+      setTopProducts(payload.topSellingProducts || []);
+      setTopIngredients(payload.topUsedIngredients || []);
+      setMermas(payload.mermas || []);
     } else {
       toast.error(financesRes.error || "Error al cargar datos contables");
     }
 
     if (ordersRes.success && Array.isArray(ordersRes.data)) {
-      setOrders(ordersRes.data);
+      setOrders(ordersRes.data as OrderDeliveryItem[]);
     }
 
     setLoading(false);
@@ -145,7 +201,7 @@ export default function AccountingView() {
   const handleDeleteOrder = async (order: OrderDeliveryItem) => {
     const confirmed = await confirm({
       title: "¿Eliminar pedido / venta?",
-      description: `¿Estás seguro de que deseas eliminar el registro del pedido "${order.orderNumber}" de ${order.clientName}?\n\nEsta acción revertirá los insumos de flores asociados al inventario disponible y eliminará el registro de venta permanentemente.`,
+      description: `¿Estás seguro de que deseas eliminar el registro del pedido "${order.orderNumber}" de ${order.clientName}?\n\nEsta acción revertirá los insumos de flores asociados al inventario disponible y eliminará el registro de venta (y su ticket vinculado) permanentemente.`,
       confirmText: "Sí, eliminar pedido",
       cancelText: "Cancelar",
       variant: "destructive",
@@ -163,6 +219,181 @@ export default function AccountingView() {
     } else {
       toast.error(res.error || "No se pudo eliminar el pedido");
     }
+  };
+
+  const handleDeletePOSTicket = async (ticket: POSTicketRecord) => {
+    const confirmed = await confirm({
+      title: "¿Eliminar ticket POS?",
+      description: `¿Deseas eliminar el ticket "${ticket.ticketNumber}" de ${ticket.customerName} por ${formatCurrency(ticket.totalAmount)}?\n\nSi pertenece al turno de caja actual, se descontará automáticamente del arqueo abierto.`,
+      confirmText: "Sí, eliminar ticket",
+      cancelText: "Cancelar",
+      variant: "destructive",
+    });
+
+    if (!confirmed) return;
+
+    const res = await deletePOSTicketAction(ticket.id);
+    if (res.success) {
+      toast.success(`Ticket ${ticket.ticketNumber} eliminado correctamente`);
+      loadData();
+    } else {
+      toast.error(res.error || "No se pudo eliminar el ticket");
+    }
+  };
+
+  const handleDeleteExpense = async (expense: ExpenseItem) => {
+    const confirmed = await confirm({
+      title: "¿Eliminar egreso registrado?",
+      description: `¿Deseas eliminar el gasto "${expense.description}" (${expense.category}) por ${formatCurrency(expense.amount)}?`,
+      confirmText: "Sí, eliminar egreso",
+      cancelText: "Cancelar",
+      variant: "destructive",
+    });
+
+    if (!confirmed) return;
+
+    const res = await deleteFinancialExpenseAction(expense.id);
+    if (res.success) {
+      toast.success("Egreso eliminado correctamente");
+      loadData();
+    } else {
+      toast.error(res.error || "No se pudo eliminar el egreso");
+    }
+  };
+
+  const handleCopyDelivery = async (order: OrderDeliveryItem) => {
+    const message = buildDeliveryWhatsAppMessage({
+      orderNumber: order.orderNumber,
+      clientName: order.clientName,
+      clientPhone: order.clientPhone,
+      recipientName: order.recipientName,
+      recipientPhone: order.recipientPhone,
+      address: order.address,
+      zone: order.zone,
+      mapsUrl: order.mapsUrl,
+      deliveryDate: order.deliveryDate,
+      deliveryTime: order.deliveryTime,
+      arrangementName: order.arrangementName,
+      deliveryFee: order.deliveryFee,
+      deliveryType: isPickupOrder(order) ? "pickup" : "delivery",
+    });
+
+    try {
+      await navigator.clipboard.writeText(message);
+      toast.success("Datos de delivery copiados para WhatsApp");
+    } catch {
+      toast.error("No se pudo copiar al portapapeles");
+    }
+  };
+
+  const handleExportExcel = () => {
+    const todayStamp = new Date().toISOString().split("T")[0];
+
+    if (activeTab === "summary") {
+      downloadExcelCsv(
+        `farfalina-contabilidad-egresos-${todayStamp}`,
+        ["Fecha", "Categoría", "Descripción", "Monto (Bs)"],
+        [
+          ...expenses.map((e) => [
+            new Date(e.expenseDate).toLocaleDateString(),
+            e.category,
+            e.description,
+            e.amount,
+          ]),
+          ["", "", "TOTAL INGRESOS", summary.totalIncome],
+          ["", "", "TOTAL EGRESOS OPERATIVOS", summary.totalExpensesCategory],
+          ["", "", "TOTAL MERMAS", summary.totalMermaCost],
+          ["", "", "GANANCIA NETA", summary.netProfit],
+        ]
+      );
+      toast.success("Archivo Excel de Balance y Egresos descargado");
+      return;
+    }
+
+    if (activeTab === "orders") {
+      downloadExcelCsv(
+        `farfalina-pedidos-ventas-${todayStamp}`,
+        [
+          "N° Pedido",
+          "Fecha Entrega",
+          "Hora",
+          "Cliente",
+          "Tel. Cliente",
+          "Destinatario",
+          "Tel. Destinatario",
+          "Dirección",
+          "Zona",
+          "Maps",
+          "Arreglo",
+          "Pago",
+          "Estado",
+          "Envío (Bs)",
+          "Total (Bs)",
+        ],
+        orders.map((ord) => [
+          ord.orderNumber,
+          new Date(ord.deliveryDate).toLocaleDateString(),
+          ord.deliveryTime,
+          ord.clientName,
+          ord.clientPhone || "",
+          ord.recipientName,
+          ord.recipientPhone || "",
+          ord.address,
+          ord.zone,
+          ord.mapsUrl || "",
+          ord.arrangementName,
+          ord.paymentMethod || "Efectivo",
+          ord.status,
+          ord.deliveryFee || 0,
+          ord.total,
+        ])
+      );
+      toast.success("Archivo Excel de Pedidos y Ventas descargado");
+      return;
+    }
+
+    if (activeTab === "tickets") {
+      downloadExcelCsv(
+        `farfalina-tickets-pos-${todayStamp}`,
+        ["N° Ticket", "Fecha", "Cliente", "Método de Pago", "Ítems", "Total (Bs)"],
+        posTickets.map((t) => [
+          t.ticketNumber,
+          new Date(t.createdAt).toLocaleString(),
+          t.customerName,
+          t.paymentMethod,
+          t.ticketItems.map((i) => `${i.quantity}x ${i.itemName}`).join(" | "),
+          t.totalAmount,
+        ])
+      );
+      toast.success("Archivo Excel de Tickets POS descargado");
+      return;
+    }
+
+    if (activeTab === "shifts") {
+      downloadExcelCsv(
+        `farfalina-arqueos-caja-${todayStamp}`,
+        ["Fecha", "Cajero", "Apertura (Bs)", "Efectivo (Bs)", "QR (Bs)", "Tarjeta (Bs)", "Declarado (Bs)", "Discrepancia (Bs)"],
+        shifts.map((s) => [
+          s.closedAt ? new Date(s.closedAt).toLocaleString() : s.shiftDate,
+          s.cashierName,
+          s.openingBalance,
+          s.totalSalesCash,
+          s.totalSalesQR || 0,
+          s.totalSalesCard || 0,
+          s.closingBalance || 0,
+          s.discrepancy || 0,
+        ])
+      );
+      toast.success("Archivo Excel de Arqueos de Caja descargado");
+      return;
+    }
+
+    downloadExcelCsv(
+      `farfalina-analitica-ventas-${todayStamp}`,
+      ["Ranking", "Producto / Arreglo", "Unidades Vendidas", "Ingresos (Bs)"],
+      topProducts.map((p, idx) => [idx + 1, p.name, p.quantity, p.revenue])
+    );
+    toast.success("Archivo Excel de Analítica descargado");
   };
 
   const handleCreateExpense = async (e: React.FormEvent) => {
@@ -209,7 +440,27 @@ export default function AccountingView() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto print:hidden">
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 whitespace-nowrap"
+            title="Descargar reporte en formato Excel (.csv)"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Excel</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="px-3 py-1.5 bg-warm-100 hover:bg-warm-200 text-warm-800 border border-warm-200 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 whitespace-nowrap"
+            title="Imprimir o guardar vista en PDF"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            <span>Imprimir / PDF</span>
+          </button>
+
           <button
             onClick={() => setNewExpenseModalOpen(true)}
             className="flex-1 sm:flex-none px-3.5 py-1.5 bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold rounded-xl shadow-warm transition-all flex items-center justify-center gap-1.5 whitespace-nowrap"
@@ -234,7 +485,16 @@ export default function AccountingView() {
               }`}
             >
               <Truck className="h-3.5 w-3.5" />
-              <span>Pedidos & Ventas ({orders.length})</span>
+              <span>Pedidos ({orders.length})</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("tickets")}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                activeTab === "tickets" ? "bg-white text-terracotta-700 shadow-sm" : "text-warm-600 hover:text-warm-900"
+              }`}
+            >
+              <ShoppingBag className="h-3.5 w-3.5" />
+              <span>Tickets POS ({posTickets.length})</span>
             </button>
             <button
               onClick={() => setActiveTab("shifts")}
@@ -340,6 +600,7 @@ export default function AccountingView() {
                       <th className="p-3">Categoría</th>
                       <th className="p-3">Descripción</th>
                       <th className="p-3 text-right">Monto</th>
+                      <th className="p-3 text-center print:hidden">Acción</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-warm-100 text-warm-900">
@@ -356,6 +617,16 @@ export default function AccountingView() {
                         <td className="p-3 font-medium text-warm-900">{e.description}</td>
                         <td className="p-3 text-right font-mono font-bold text-rose-600">
                           -{formatCurrency(e.amount)}
+                        </td>
+                        <td className="p-3 text-center print:hidden">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteExpense(e)}
+                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 transition-all inline-flex items-center justify-center"
+                            title="Eliminar egreso"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -375,9 +646,19 @@ export default function AccountingView() {
                         <p className="font-mono font-bold text-rose-600">-{formatCurrency(e.amount)}</p>
                       </div>
                     </div>
-                    <span className="inline-flex px-2 py-1 bg-rose-50 text-rose-700 rounded-md font-semibold text-[11px] border border-rose-200">
-                      {e.category}
-                    </span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex px-2 py-1 bg-rose-50 text-rose-700 rounded-md font-semibold text-[11px] border border-rose-200">
+                        {e.category}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteExpense(e)}
+                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 text-xs font-bold inline-flex items-center gap-1"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span>Eliminar</span>
+                      </button>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -573,14 +854,17 @@ export default function AccountingView() {
                               </td>
                               <td className="p-3">
                                 <p className="font-semibold text-warm-800">{ord.recipientName}</p>
-                                {ord.address?.includes("Retiro en Tienda") || ord.deliveryFee === 0 ? (
+                                {ord.recipientPhone && (
+                                  <p className="text-[10px] font-mono text-warm-500">{ord.recipientPhone}</p>
+                                )}
+                                {isPickupOrder(ord) ? (
                                   <span className="text-[10px] font-bold text-purple-700 inline-flex items-center gap-1">
                                     <Store className="h-3 w-3" />
                                     <span>Retiro en Tienda</span>
                                   </span>
                                 ) : (
                                   <span className="text-[10px] text-warm-500 truncate max-w-[160px] block">
-                                    {ord.zone}
+                                    {ord.zone || ord.address}
                                   </span>
                                 )}
                               </td>
@@ -667,10 +951,13 @@ export default function AccountingView() {
                             <div className="min-w-0">
                               <p className="text-warm-500">Destinatario</p>
                               <p className="font-semibold text-warm-800 break-words">{ord.recipientName}</p>
-                              {ord.address?.includes("Retiro en Tienda") || ord.deliveryFee === 0 ? (
+                              {ord.recipientPhone && (
+                                <p className="font-mono text-[11px] text-warm-500 break-all">{ord.recipientPhone}</p>
+                              )}
+                              {isPickupOrder(ord) ? (
                                 <span className="text-[10px] font-bold text-purple-700">Retiro en Tienda</span>
                               ) : (
-                                <p className="text-[10px] text-warm-500 break-words">{ord.zone}</p>
+                                <p className="text-[10px] text-warm-500 break-words">{ord.zone || ord.address}</p>
                               )}
                             </div>
                           </div>
@@ -756,7 +1043,7 @@ export default function AccountingView() {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 p-3.5 bg-warm-50 rounded-2xl border border-warm-200 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-warm-50 rounded-2xl border border-warm-200 text-xs">
               <div>
                 <span className="font-bold text-warm-400 uppercase text-[9px] block">Cliente:</span>
                 <p className="font-bold text-warm-900">{selectedOrderDetail.clientName}</p>
@@ -765,9 +1052,31 @@ export default function AccountingView() {
               <div>
                 <span className="font-bold text-warm-400 uppercase text-[9px] block">Destinatario:</span>
                 <p className="font-bold text-warm-900">{selectedOrderDetail.recipientName}</p>
-                <p className="text-warm-500">{selectedOrderDetail.zone}</p>
+                {selectedOrderDetail.recipientPhone && (
+                  <p className="text-warm-600 font-mono">{selectedOrderDetail.recipientPhone}</p>
+                )}
+                <p className="text-warm-500">
+                  {isPickupOrder(selectedOrderDetail)
+                    ? "Retiro en Tienda Central"
+                    : `${selectedOrderDetail.address}${selectedOrderDetail.zone ? ` (${selectedOrderDetail.zone})` : ""}`}
+                </p>
+                {selectedOrderDetail.mapsUrl && (
+                  isHttpUrl(selectedOrderDetail.mapsUrl) ? (
+                    <a
+                      href={selectedOrderDetail.mapsUrl.trim()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:underline mt-0.5"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      <span>Abrir Maps</span>
+                    </a>
+                  ) : (
+                    <p className="text-[11px] text-blue-700 break-all mt-0.5">Maps: {selectedOrderDetail.mapsUrl}</p>
+                  )
+                )}
               </div>
-              <div className="col-span-2 pt-2 border-t border-warm-200 flex justify-between">
+              <div className="sm:col-span-2 pt-2 border-t border-warm-200 flex justify-between gap-2 flex-wrap">
                 <div>
                   <span className="font-bold text-warm-400 uppercase text-[9px] block">Entrega Programada:</span>
                   <span className="font-bold text-warm-900">
@@ -798,21 +1107,36 @@ export default function AccountingView() {
               </div>
             </div>
 
-            <div className="p-3 bg-gradient-to-r from-terracotta-50/60 to-warm-50 rounded-2xl border border-terracotta-200 space-y-1.5">
-              <span className="font-bold text-[10px] text-terracotta-700 block">Dedicatoria para Tarjeta:</span>
-              <p className="text-xs italic text-warm-800 font-serif">&ldquo;{selectedOrderDetail.dedicationMessage}&rdquo;</p>
-            </div>
+            {selectedOrderDetail.dedicationMessage?.trim() ? (
+              <div className="p-3 bg-gradient-to-r from-terracotta-50/60 to-warm-50 rounded-2xl border border-terracotta-200 space-y-1.5">
+                <span className="font-bold text-[10px] text-terracotta-700 block">Dedicatoria para Tarjeta:</span>
+                <p className="text-xs italic text-warm-800 font-serif">&ldquo;{selectedOrderDetail.dedicationMessage}&rdquo;</p>
+              </div>
+            ) : (
+              <p className="text-xs text-warm-500 italic">Sin tarjeta dedicatoria registrada para este pedido.</p>
+            )}
 
             <div className="pt-2 border-t border-warm-200 flex justify-between items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => handleDeleteOrder(selectedOrderDetail)}
-                className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 transition-all flex items-center gap-1.5"
-                title="Eliminar este pedido permanentemente"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>Eliminar Venta</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDeleteOrder(selectedOrderDetail)}
+                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 transition-all flex items-center gap-1.5"
+                  title="Eliminar este pedido permanentemente"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Eliminar Venta</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCopyDelivery(selectedOrderDetail)}
+                  className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold border border-emerald-200 transition-all flex items-center gap-1.5"
+                  title="Copiar datos de entrega para WhatsApp"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  <span>Copiar Delivery</span>
+                </button>
+              </div>
 
               <div className="flex items-center gap-2">
                 <button
@@ -838,6 +1162,131 @@ export default function AccountingView() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === "tickets" && (
+        <div className="bg-white p-5 rounded-2xl border border-warm-200 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-warm-200">
+            <div className="flex items-center gap-2">
+              <ShoppingBag className="h-4 w-4 text-terracotta-600" />
+              <div>
+                <h3 className="font-bold text-sm text-warm-900">Tickets de Venta Directa POS (Mostrador)</h3>
+                <p className="text-[11px] text-warm-500">
+                  Ventas directas emitidas en POS sin pedido de delivery vinculado. Los pedidos agendados no se duplican aquí.
+                </p>
+              </div>
+            </div>
+            <span className="text-xs text-warm-600 font-bold shrink-0">
+              {posTickets.length} Tickets · {formatCurrency(summary.totalPosSales)}
+            </span>
+          </div>
+
+          {posTickets.length === 0 ? (
+            <div className="p-8 text-center text-xs text-warm-400 border border-dashed border-warm-200 rounded-xl">
+              No hay tickets de mostrador independientes registrados.
+            </div>
+          ) : (
+            <>
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-warm-50 text-warm-600 font-semibold border-b border-warm-200">
+                    <tr>
+                      <th className="p-3">N° Ticket</th>
+                      <th className="p-3">Fecha y Hora</th>
+                      <th className="p-3">Cliente</th>
+                      <th className="p-3">Detalle de Productos</th>
+                      <th className="p-3">Pago</th>
+                      <th className="p-3 text-right">Total</th>
+                      <th className="p-3 text-center print:hidden">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-warm-100 text-warm-900">
+                    {posTickets.map((ticket) => (
+                      <tr key={ticket.id} className="hover:bg-warm-50/60 transition-colors">
+                        <td className="p-3 font-mono font-bold text-warm-700">{ticket.ticketNumber}</td>
+                        <td className="p-3 font-mono text-warm-600">
+                          {new Date(ticket.createdAt).toLocaleString()}
+                        </td>
+                        <td className="p-3 font-bold text-warm-900">{ticket.customerName}</td>
+                        <td className="p-3 text-warm-700">
+                          {ticket.ticketItems.length > 0 ? (
+                            <div className="space-y-0.5">
+                              {ticket.ticketItems.map((item) => (
+                                <p key={item.id} className="text-[11px]">
+                                  • {item.quantity}x {item.itemName} ({formatCurrency(item.price)})
+                                </p>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-warm-400 italic">Sin desglose</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-warm-100 text-warm-800 border border-warm-200">
+                            {ticket.paymentMethod}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-terracotta-700">
+                          {formatCurrency(ticket.totalAmount)}
+                        </td>
+                        <td className="p-3 text-center print:hidden">
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePOSTicket(ticket)}
+                            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 text-[11px] font-bold transition-all inline-flex items-center gap-1"
+                            title="Eliminar ticket POS"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>Eliminar</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="space-y-3 md:hidden">
+                {posTickets.map((ticket) => (
+                  <article key={ticket.id} className="rounded-xl border border-warm-200 bg-warm-50/60 p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-mono font-bold text-warm-700">{ticket.ticketNumber}</p>
+                        <p className="text-[11px] text-warm-500">{new Date(ticket.createdAt).toLocaleString()}</p>
+                        <p className="mt-1 font-bold text-sm text-warm-900 break-words">{ticket.customerName}</p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-warm-100 text-warm-800 border border-warm-200">
+                          {ticket.paymentMethod}
+                        </span>
+                        <p className="mt-1 font-mono font-bold text-terracotta-700">{formatCurrency(ticket.totalAmount)}</p>
+                      </div>
+                    </div>
+
+                    {ticket.ticketItems.length > 0 && (
+                      <div className="border-t border-warm-200 pt-2 space-y-1 text-xs text-warm-700">
+                        {ticket.ticketItems.map((item) => (
+                          <p key={item.id}>
+                            • {item.quantity}x {item.itemName} ({formatCurrency(item.price)})
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePOSTicket(ticket)}
+                      className="min-h-11 w-full bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Eliminar Ticket</span>
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

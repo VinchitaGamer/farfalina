@@ -14,6 +14,10 @@ model RawIngredient {
   unit             String                 // tallos, ramitas, piezas, metros
   warningThreshold Int                    @default(15)
   costPerUnit      Float                  @default(5.0)
+  packageCost      Float?                 // Costo por paquete (Bs)
+  packageCount     Int?                   // Número de paquetes comprados
+  unitsPerPackage  Int?                   // Tallos / unidades por paquete
+  salePrice        Float?                 // Precio de venta unitario sugerido (Bs)
   entryDate        DateTime               @default(now())
   shelfLifeDays    Int?                   @default(7)
   createdAt        DateTime               @default(now())
@@ -21,6 +25,29 @@ model RawIngredient {
   mermaLogs        MermaLog[]
   recipeItems      ArrangementRecipeItem[]
   orderRecipeItems OrderRecipeItem[]
+  purchaseLogs     IngredientPurchaseLog[]
+}
+
+model IngredientPurchaseLog {
+  id              String         @id @default(cuid())
+  rawIngredientId String?
+  ingredientName  String
+  ingredientType  String
+  unit            String
+  packageCost     Float?
+  packageCount    Int?
+  unitsPerPackage Int?
+  totalUnits      Int
+  unitCost        Float
+  totalCost       Float
+  salePrice       Float?
+  notes           String?
+  purchasedAt     DateTime       @default(now())
+  createdAt       DateTime       @default(now())
+  rawIngredient   RawIngredient? @relation(fields: [rawIngredientId], references: [id], onDelete: SetNull)
+
+  @@index([purchasedAt])
+  @@index([rawIngredientId])
 }
 
 model Arrangement {
@@ -135,24 +162,27 @@ model ChatMessage {
 }
 
 model OrderDelivery {
-  id                String            @id @default(cuid())
-  orderNumber       String            @unique
-  clientName        String
-  clientPhone       String?
-  recipientName     String
-  address           String
-  zone              String
-  deliveryDate      DateTime
-  deliveryTime      String
-  status            String            @default("En preparación") // En preparación, En camino, Entregado
-  arrangementName   String
-  salePrice         Float             @default(0.0)
-  deliveryFee       Float             @default(0.0)
-  total             Float
-  paymentMethod     String            @default("Efectivo") // Efectivo, QR, Tarjeta
-  dedicationMessage String
-  createdAt         DateTime          @default(now())
-  recipeItems       OrderRecipeItem[]
+  id                 String            @id @default(cuid())
+  orderNumber        String            @unique
+  clientName         String
+  clientPhone        String?
+  recipientName      String
+  recipientPhone     String?
+  address            String
+  zone               String
+  mapsUrl            String?
+  deliveryDate       DateTime
+  deliveryTime       String
+  status             String            @default("En preparación") // En preparación, En camino, Entregado
+  arrangementName    String
+  salePrice          Float             @default(0.0)
+  deliveryFee        Float             @default(0.0)
+  total              Float
+  paymentMethod      String            @default("Efectivo") // Efectivo, QR, Tarjeta
+  dedicationMessage  String
+  linkedTicketNumber String?
+  createdAt          DateTime          @default(now())
+  recipeItems        OrderRecipeItem[]
 }
 
 model OrderRecipeItem {
@@ -168,7 +198,8 @@ model OrderRecipeItem {
 model CRMClient {
   id             String            @id @default(cuid())
   name           String
-  phone          String            @unique
+  phone          String
+  environment    String            @default("farfalina") // farfalina, carissma
   favoriteFlower String?
   notes          String?
   totalSpent     Float             @default(0.0)
@@ -178,17 +209,23 @@ model CRMClient {
   createdAt      DateTime          @default(now())
   events         CRMSpecialEvent[]
   campaigns      ContentCampaign[]
+
+  @@unique([phone, environment], name: "crmclient_phone_env_unique")
+  @@index([environment])
 }
 
 model CRMSpecialEvent {
   id          String     @id @default(cuid())
   clientId    String?
+  environment String     @default("farfalina") // farfalina, carissma
   title       String
   eventType   String     // Aniversario, Cumpleaños, Evento Estacional, Campaña Marketing
   eventDate   DateTime
   description String?
   promo       String?
   client      CRMClient? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([environment])
 }
 
 model ContentCampaign {
@@ -303,13 +340,18 @@ model CarissmaExpense {
 }
 
 model CarissmaConfig {
-  id                     String   @id @default("default")
-  defaultRentalDays      Int      @default(3)
-  defaultGuaranteePercent Float   @default(30.0)
-  decayRatePerUsage      Float    @default(5.0) // % de reducción por uso
-  minPriceFloorPercent   Float    @default(40.0) // Piso mínimo % sobre precio base
-  lateFeePerDay          Float    @default(50.0) // Penalización diaria por retraso en Bs
-  updatedAt              DateTime @updatedAt
+  id                      String   @id @default("default")
+  defaultRentalDays       Int      @default(3)
+  defaultGuaranteePercent Float    @default(30.0)
+  decayRatePerUsage       Float    @default(5.0) // % de reducción por uso
+  minPriceFloorPercent    Float    @default(40.0) // Piso mínimo % sobre precio base
+  lateFeePerDay           Float    @default(50.0) // Penalización diaria por retraso en Bs
+  storeName               String?  // Nombre comercial editable para contratos
+  storeSubtitle           String?  // Subtítulo editable para contratos
+  storeAddress            String?  // Dirección real de la boutique
+  storeCity               String?  // Ciudad / País (ej: La Paz, Bolivia)
+  storePhone              String?  // Teléfono / WhatsApp oficial de Carissma
+  updatedAt               DateTime @updatedAt
 }
 
 model ChannelConfig {

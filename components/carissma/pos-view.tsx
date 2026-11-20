@@ -186,7 +186,7 @@ export default function PosView() {
   const handleClientNameChange = async (val: string) => {
     setClientName(val);
     if (val.trim().length >= 2) {
-      const res = await searchCRMClientsAction(val);
+      const res = await searchCRMClientsAction(val, "carissma");
       if (res.success && Array.isArray(res.data)) {
         setCrmSuggestions(res.data as CRMClientSuggestion[]);
         setShowCrmSuggestions(true);

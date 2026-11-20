@@ -101,7 +101,7 @@ export default function CrmView() {
 
   const loadCRMData = async () => {
     setLoading(true);
-    const res = await getCRMDataAction();
+    const res = await getCRMDataAction("farfalina");
     if (res.success && res.data) {
       const crmData = res.data as {
         clients: CRMClientItem[];

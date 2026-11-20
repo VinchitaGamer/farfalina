@@ -61,7 +61,7 @@ export default function POSTicketModal({ isOpen, ticket, onClose }: POSTicketMod
               </div>
               <h2 className="font-bold text-base text-warm-900 tracking-tight">FLORERÍA FARFALINA</h2>
               <p className="text-[11px] text-warm-500">Diseño Floral & Regalos Exclusivos</p>
-              <p className="text-[10px] text-warm-400 font-mono">La Paz - Bolivia • NIT: 1029384021</p>
+              <p className="text-[10px] text-warm-400 font-mono">La Paz - Bolivia</p>
             </div>
 
             <div className="border-t border-b border-dashed border-warm-300 py-2 space-y-1 text-left text-xs font-mono">
@@ -125,7 +125,7 @@ export default function POSTicketModal({ isOpen, ticket, onClose }: POSTicketMod
 
             <div className="pt-2 text-[10px] text-warm-500 italic space-y-1">
               <p>¡Gracias por elegir Florería Farfalina!</p>
-              <p className="font-mono">www.floreriafarfalina.bo</p>
+              <p className="font-mono">farfalina.tech</p>
             </div>
           </div>
 

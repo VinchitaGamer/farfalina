@@ -457,7 +457,12 @@ async function processInstagramMessage(input: ProcessInstagramMessageInput) {
   // Create or link CRMClient in SQLite (prisma/dev.db)
   try {
     const existingClient = await prisma.cRMClient.findUnique({
-      where: { phone: senderId },
+      where: {
+        crmclient_phone_env_unique: {
+          phone: senderId,
+          environment,
+        },
+      },
     });
 
     const metadataParts = [
@@ -477,6 +482,7 @@ async function processInstagramMessage(input: ProcessInstagramMessageInput) {
         data: {
           name: clientName,
           phone: senderId,
+          environment,
           notes: igOriginNote,
           loyaltyTier: "Bronce",
         },

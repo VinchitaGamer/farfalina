@@ -43,10 +43,16 @@ interface ArrangementItemData {
 interface PosCartPanelProps {
   arrangementsList: ArrangementItemData[];
   activeShift: CashRegisterShift | null;
+  isLoading?: boolean;
   onSaleComplete: () => void;
 }
 
-export default function PosCartPanel({ arrangementsList, activeShift, onSaleComplete }: PosCartPanelProps) {
+export default function PosCartPanel({
+  arrangementsList,
+  activeShift,
+  isLoading = false,
+  onSaleComplete,
+}: PosCartPanelProps) {
   const [mobileTab, setMobileTab] = useState<"catalog" | "ticket">("catalog");
   const [arrangementCategory, setArrangementCategory] = useState<string>("Todos");
   const [arrangementSearch, setArrangementSearch] = useState<string>("");
@@ -94,7 +100,7 @@ export default function PosCartPanel({ arrangementsList, activeShift, onSaleComp
     setCustomerName(val);
     if (val.trim().length >= 2) {
       setIsSearchingClient(true);
-      const res = await searchCRMClientsAction(val.trim());
+      const res = await searchCRMClientsAction(val.trim(), "farfalina");
       if (res.success && Array.isArray(res.data)) {
         setClientSuggestions(res.data);
         setShowSuggestions(Array.isArray(res.data) && res.data.length > 0);
@@ -224,7 +230,7 @@ export default function PosCartPanel({ arrangementsList, activeShift, onSaleComp
                   <ShoppingBag className="h-4 w-4 text-terracotta-600" />
                   <span>Catálogo de Arreglos de Mostrador ({arrangementsList.length})</span>
                 </h3>
-                <p className="text-[11px] text-warm-500">Toca un arreglo floral para agregarlo al ticket y descontar su receta</p>
+                <p className="text-[11px] text-warm-500">Toca un arreglo floral para agregarlo al ticket de venta rápida en mostrador</p>
               </div>
               <div className="relative w-full sm:w-48">
                 <Search className="h-3.5 w-3.5 text-warm-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -256,12 +262,17 @@ export default function PosCartPanel({ arrangementsList, activeShift, onSaleComp
             </div>
           </div>
 
-          {arrangementsList.length === 0 ? (
+          {isLoading ? (
+            <div className="p-10 text-center bg-white rounded-2xl border border-warm-200 space-y-2 animate-pulse">
+              <Package className="h-8 w-8 text-terracotta-300 mx-auto" />
+              <p className="text-xs font-bold text-warm-600">Cargando catálogo de arreglos...</p>
+            </div>
+          ) : arrangementsList.length === 0 ? (
             <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-warm-200 space-y-2">
               <Package className="h-8 w-8 text-warm-300 mx-auto" />
               <p className="text-xs font-bold text-warm-700">No hay arreglos registrados en el catálogo.</p>
               <p className="text-[11px] text-warm-500 max-w-sm mx-auto">
-                Crea tus arreglos con sus recetas de insumos en el módulo de <strong>"Catálogo & Web"</strong> o utiliza el botón <strong>"Ticket Manual"</strong> para un arreglo hecho al momento.
+                Crea tus arreglos en el módulo de <strong>&quot;E-Commerce y Catálogo&quot;</strong> o utiliza el botón <strong>&quot;Ticket Manual&quot;</strong> para un arreglo hecho al momento.
               </p>
             </div>
           ) : (

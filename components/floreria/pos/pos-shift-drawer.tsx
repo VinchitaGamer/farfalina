@@ -140,7 +140,7 @@ export default function PosShiftDrawer({ activeShift, archivedShifts, onShiftCha
               <TrendingUp className="h-3.5 w-3.5" /> Ventas QR / Tarjeta
             </p>
             <p className="text-lg font-bold text-blue-800 mt-1">
-              {formatCurrency(activeShift?.totalSalesQR || 0)}
+              {formatCurrency((activeShift?.totalSalesQR || 0) + (activeShift?.totalSalesCard || 0))}
             </p>
           </div>
         </div>
@@ -168,7 +168,7 @@ export default function PosShiftDrawer({ activeShift, archivedShifts, onShiftCha
                     <th className="p-3">Cajero</th>
                     <th className="p-3">Apertura</th>
                     <th className="p-3">Ventas Efectivo</th>
-                    <th className="p-3">Ventas QR</th>
+                    <th className="p-3">Ventas QR / Tarjeta</th>
                     <th className="p-3">Saldo Declarado</th>
                     <th className="p-3">Discrepancia</th>
                     <th className="p-3 text-right">Reporte PDF</th>
@@ -183,7 +183,7 @@ export default function PosShiftDrawer({ activeShift, archivedShifts, onShiftCha
                       <td className="p-3 font-semibold">{s.cashierName}</td>
                       <td className="p-3 font-mono text-warm-600">{formatCurrency(s.openingBalance)}</td>
                       <td className="p-3 font-mono text-emerald-700">{formatCurrency(s.totalSalesCash)}</td>
-                      <td className="p-3 font-mono text-blue-700">{formatCurrency(s.totalSalesQR)}</td>
+                      <td className="p-3 font-mono text-blue-700">{formatCurrency((s.totalSalesQR || 0) + (s.totalSalesCard || 0))}</td>
                       <td className="p-3 font-mono font-bold text-warm-900">{formatCurrency(s.closingBalance || 0)}</td>
                       <td className="p-3">
                         <span

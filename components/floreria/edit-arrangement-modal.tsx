@@ -1,22 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
-import { X, Save, Trash2, Plus, Package, Sparkles, Tag, Search } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { X, Save, Trash2, Plus, Sparkles, Tag } from "lucide-react";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { updateArrangementAction, deleteArrangementAction, getRawIngredientsAction } from "@/app/actions/arrangements";
+import { updateArrangementAction, deleteArrangementAction } from "@/app/actions/arrangements";
 import { toast } from "@/components/ui/toast";
-import { formatCurrency } from "@/lib/utils";
 
-interface RawIngredientItem {
-  id: string;
-  name: string;
-  type: string;
-  available: number;
-  unit: string;
-  costPerUnit: number;
-}
-
-interface ArrangementItemData {
+type ArrangementItemData = {
   id: string;
   name: string;
   category: string;
@@ -29,14 +19,14 @@ interface ArrangementItemData {
     quantityNeeded: number;
     rawIngredient?: { name: string; unit: string; costPerUnit?: number };
   }[];
-}
+};
 
-interface EditArrangementModalProps {
+type EditArrangementModalProps = {
   isOpen: boolean;
   arrangement: ArrangementItemData | null;
   onClose: () => void;
   onSuccess: () => void;
-}
+};
 
 export default function EditArrangementModal({
   isOpen,
@@ -45,7 +35,6 @@ export default function EditArrangementModal({
   onSuccess,
 }: EditArrangementModalProps) {
   const confirm = useConfirm();
-  // Dynamic Arrangement Categories
   const DEFAULT_ARR_CATEGORIES = ["Rosas", "Girasoles", "Arreglos Mixtos", "Insumos & Jarrones"];
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -55,12 +44,8 @@ export default function EditArrangementModal({
   const [category, setCategory] = useState<string>("Rosas");
   const [price, setPrice] = useState<number | string>(280);
   const [featured, setFeatured] = useState<boolean>(false);
-
   const [image, setImage] = useState("");
   const [description, setDescription] = useState("");
-
-  const [availableIngredients, setAvailableIngredients] = useState<RawIngredientItem[]>([]);
-  const [selectedRecipe, setSelectedRecipe] = useState<{ rawIngredientId: string; quantityNeeded: number }[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -114,9 +99,6 @@ export default function EditArrangementModal({
     toast.success(`Categoría "${catToDelete}" eliminada.`);
   };
 
-  const [recipeCategory, setRecipeCategory] = useState<string>("Todos");
-  const [recipeSearch, setRecipeSearch] = useState<string>("");
-
   useEffect(() => {
     if (isOpen && arrangement) {
       setName(arrangement.name);
@@ -125,80 +107,16 @@ export default function EditArrangementModal({
       setFeatured(arrangement.featured);
       setImage(arrangement.image);
       setDescription(arrangement.description);
-      setRecipeCategory("Todos");
-      setRecipeSearch("");
-
-      if (arrangement.recipeItems) {
-        setSelectedRecipe(
-          arrangement.recipeItems.map((r) => ({
-            rawIngredientId: r.rawIngredientId,
-            quantityNeeded: r.quantityNeeded,
-          }))
-        );
-      }
-
-      loadIngredients();
+      setError(null);
     }
   }, [isOpen, arrangement]);
 
-  const loadIngredients = async () => {
-    const res = await getRawIngredientsAction();
-    if (res.success && Array.isArray(res.data)) {
-      setAvailableIngredients(res.data as RawIngredientItem[]);
-    }
-  };
-
-  const dynamicCategories = useMemo(() => {
-    const rawTypes = availableIngredients
-      .map((i) => (i.type || "").trim())
-      .filter((t) => t.length > 0);
-    const uniqueTypes = Array.from(new Set(rawTypes));
-    return ["Todos", ...uniqueTypes];
-  }, [availableIngredients]);
-
-  const filteredIngredients = useMemo(() => {
-    return availableIngredients.filter((i) => {
-      const matchesCategory =
-        recipeCategory === "Todos" ||
-        (i.type || "").trim().toLowerCase() === recipeCategory.trim().toLowerCase();
-
-      const q = recipeSearch.trim().toLowerCase();
-      const matchesSearch =
-        !q ||
-        i.name.toLowerCase().includes(q) ||
-        (i.unit && i.unit.toLowerCase().includes(q)) ||
-        (i.type && i.type.toLowerCase().includes(q));
-
-      return matchesCategory && matchesSearch;
-    });
-  }, [availableIngredients, recipeCategory, recipeSearch]);
-
   if (!isOpen || !arrangement) return null;
-
-  const addIngredient = (ingId: string) => {
-    setSelectedRecipe((prev) => {
-      const exists = prev.find((r) => r.rawIngredientId === ingId);
-      if (exists) {
-        return prev.map((r) => (r.rawIngredientId === ingId ? { ...r, quantityNeeded: r.quantityNeeded + 1 } : r));
-      }
-      return [...prev, { rawIngredientId: ingId, quantityNeeded: 1 }];
-    });
-  };
-
-  const updateQuantity = (ingId: string, qty: number) => {
-    if (qty <= 0) {
-      setSelectedRecipe((prev) => prev.filter((r) => r.rawIngredientId !== ingId));
-      return;
-    }
-    setSelectedRecipe((prev) =>
-      prev.map((r) => (r.rawIngredientId === ingId ? { ...r, quantityNeeded: qty } : r))
-    );
-  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !image.trim() || !description.trim()) {
-      setError("Por favor completa todos los campos requeridos.");
+    if (!name.trim() || !image.trim()) {
+      setError("Por favor completa el nombre y la URL de imagen.");
       return;
     }
 
@@ -207,13 +125,13 @@ export default function EditArrangementModal({
 
     const res = await updateArrangementAction({
       id: arrangement.id,
-      name,
+      name: name.trim(),
       category,
       price: Number(price),
       featured,
-      image,
-      description,
-      recipeItems: selectedRecipe,
+      image: image.trim(),
+      description: description.trim() || "Arreglo floral Florería Farfalina",
+      recipeItems: [],
     });
 
     setLoading(false);
@@ -254,7 +172,7 @@ export default function EditArrangementModal({
             <Sparkles className="h-5 w-5 text-terracotta-600" />
             <h3 className="font-bold text-base text-warm-900">Editar Arreglo: {arrangement.name}</h3>
           </div>
-          <button onClick={onClose} className="p-1 text-warm-400 hover:text-warm-700 rounded-lg">
+          <button type="button" onClick={onClose} className="p-1 text-warm-400 hover:text-warm-700 rounded-lg">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -266,7 +184,7 @@ export default function EditArrangementModal({
         )}
 
         <form onSubmit={handleSave} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-xs font-bold text-warm-800">Nombre del Arreglo *</label>
               <input
@@ -357,9 +275,9 @@ export default function EditArrangementModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-warm-800">Precio Público (Bs) *</label>
+              <label className="text-xs font-bold text-warm-800">Precio Público / Temporada (Bs) *</label>
               <input
                 type="text"
                 inputMode="decimal"
@@ -385,7 +303,7 @@ export default function EditArrangementModal({
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-warm-800">URL Fotografía HD *</label>
+            <label className="text-xs font-bold text-warm-800">URL Fotografía *</label>
             <input
               type="url"
               value={image}
@@ -396,129 +314,17 @@ export default function EditArrangementModal({
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-warm-800">Descripción *</label>
+            <label className="text-xs font-bold text-warm-800">Descripción</label>
             <textarea
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-xs text-warm-900 focus:outline-none focus:border-terracotta-500"
-              required
             />
           </div>
 
-          {/* Section: Edit Recipe with Bento Grid */}
-          <div className="p-3.5 bg-warm-50 border border-warm-200 rounded-2xl space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-warm-200 pb-2">
-              <span className="text-xs font-bold text-warm-900 flex items-center gap-1.5">
-                <Package className="h-4 w-4 text-terracotta-600" />
-                Bento Grid: Receta de Insumos del Arreglo
-              </span>
-              <span className="text-[11px] font-mono text-terracotta-700 font-bold">
-                Costo Receta: {formatCurrency(
-                  selectedRecipe.reduce((acc, curr) => {
-                    const ing = availableIngredients.find((i) => i.id === curr.rawIngredientId);
-                    return acc + (ing ? ing.costPerUnit * curr.quantityNeeded : 0);
-                  }, 0)
-                )}
-              </span>
-            </div>
-
-            {/* Bento Filter & Search Controls */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-thin">
-                {dynamicCategories.map((cat) => (
-                  <button
-                    type="button"
-                    key={cat}
-                    onClick={() => setRecipeCategory(cat)}
-                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors whitespace-nowrap ${
-                      recipeCategory === cat
-                        ? "bg-terracotta-500 text-white shadow-xs"
-                        : "bg-white text-warm-700 hover:bg-warm-100 border border-warm-200"
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-
-              <div className="relative w-full sm:w-44 shrink-0">
-                <Search className="h-3 w-3 absolute left-2.5 top-2.5 text-warm-400" />
-                <input
-                  type="text"
-                  value={recipeSearch}
-                  onChange={(e) => setRecipeSearch(e.target.value)}
-                  placeholder="Buscar insumo..."
-                  className="w-full pl-7 pr-2 py-1 bg-white border border-warm-200 rounded-lg text-xs text-warm-900 focus:outline-none focus:border-terracotta-500 placeholder:text-warm-400"
-                />
-              </div>
-            </div>
-
-            {/* Bento Grid Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
-              {filteredIngredients.map((ing) => {
-                const recipeItem = selectedRecipe.find((r) => r.rawIngredientId === ing.id);
-                const isSelected = !!recipeItem;
-                const qty = recipeItem ? recipeItem.quantityNeeded : 0;
-
-                return (
-                  <div
-                    key={ing.id}
-                    className={`p-2 rounded-xl border text-left flex flex-col justify-between space-y-1 ${
-                      isSelected
-                        ? "bg-terracotta-50/70 border-terracotta-400 shadow-sm"
-                        : "bg-white border-warm-200 hover:border-warm-300"
-                    }`}
-                  >
-                    <div>
-                      <span className="px-1 py-0.2 text-[8px] font-bold bg-warm-100 text-warm-700 rounded">
-                        {ing.type}
-                      </span>
-                      <p className="text-[11px] font-bold text-warm-900 line-clamp-1 mt-0.5">{ing.name}</p>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[9px] text-warm-500">
-                      <span>{ing.available} {ing.unit}</span>
-                      <span className="font-mono">{formatCurrency(ing.costPerUnit)}/u</span>
-                    </div>
-
-                    <div className="pt-1 border-t border-warm-200 flex items-center justify-between">
-                      {isSelected ? (
-                        <div className="flex items-center justify-between w-full bg-white rounded p-0.5 border border-terracotta-300">
-                          <button
-                            type="button"
-                            onClick={() => updateQuantity(ing.id, qty - 1)}
-                            className="p-0.5 text-warm-600 hover:bg-warm-100 rounded"
-                          >
-                            <Trash2 className="h-3 w-3 text-rose-500" />
-                          </button>
-                          <span className="font-bold text-[11px] text-terracotta-800 px-1">{qty}</span>
-                          <button
-                            type="button"
-                            onClick={() => addIngredient(ing.id)}
-                            className="p-0.5 text-warm-600 hover:bg-warm-100 rounded"
-                          >
-                            <Plus className="h-3 w-3 text-terracotta-600" />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => addIngredient(ing.id)}
-                          className="w-full py-0.5 text-[10px] font-bold bg-warm-100 hover:bg-terracotta-500 hover:text-white text-warm-800 rounded transition-all flex items-center justify-center gap-1"
-                        >
-                          <Plus className="h-3 w-3" /> Añadir
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
           {/* Footer Actions */}
-          <div className="pt-3 border-t border-warm-200 flex items-center justify-between">
+          <div className="pt-3 border-t border-warm-200 flex items-center justify-between gap-2 flex-wrap">
             <button
               type="button"
               onClick={handleDelete}

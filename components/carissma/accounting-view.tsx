@@ -12,19 +12,25 @@ import {
   ShieldCheck,
   Search,
   CheckCircle2,
-  X
+  X,
+  Trash2,
+  Download
 } from "lucide-react";
 import {
   getCarissmaFinancialSummaryAction,
   getCarissmaExpensesAction,
   createCarissmaExpenseAction,
+  deleteCarissmaExpenseAction,
   getCarissmaArchivedShiftsAction,
   getDressesAction,
   getRentalBookingsAction,
-  returnRentalDressAction
+  returnRentalDressAction,
+  deleteRentalBookingAction
 } from "@/app/actions/carissma";
 import { formatCurrency } from "@/lib/utils";
+import { downloadExcelCsv } from "@/lib/export-csv";
 import { toast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import ShiftReportModal, { CarissmaShiftReportData } from "./shift-report-modal";
 import RentalContractModal from "./rental-contract-modal";
 
@@ -98,6 +104,7 @@ interface DressItem {
 }
 
 export default function AccountingView() {
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"summary" | "guarantees" | "shifts" | "analytics">("summary");
 
@@ -198,6 +205,128 @@ export default function AccountingView() {
     }
   };
 
+  const handleDeleteBooking = async (booking: { id: string; contractNumber: string; clientName: string; dressName: string }) => {
+    const confirmed = await confirm({
+      title: "¿Eliminar alquiler y liberar prenda?",
+      description: `¿Deseas eliminar el contrato "${booking.contractNumber}" de ${booking.clientName} (${booking.dressName})?\n\nLa prenda volverá a estar disponible (si no tiene otras reservas activas) y se actualizarán los totales de caja y contabilidad.`,
+      confirmText: "Sí, eliminar alquiler",
+      cancelText: "Cancelar",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+
+    const res = await deleteRentalBookingAction(booking.id);
+    if (res.success) {
+      toast.success(`Contrato ${booking.contractNumber} eliminado correctamente`);
+      if (selectedContractBooking?.id === booking.id) {
+        setSelectedContractBooking(null);
+      }
+      loadData();
+    } else {
+      toast.error(res.error || "No se pudo eliminar el alquiler");
+    }
+  };
+
+  const handleDeleteExpense = async (expense: ExpenseItem) => {
+    const confirmed = await confirm({
+      title: "¿Eliminar gasto operativo?",
+      description: `¿Deseas eliminar el egreso "${expense.description}" (${expense.category}) por ${formatCurrency(expense.amount)}?`,
+      confirmText: "Sí, eliminar gasto",
+      cancelText: "Cancelar",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+
+    const res = await deleteCarissmaExpenseAction(expense.id);
+    if (res.success) {
+      toast.success("Gasto eliminado correctamente");
+      loadData();
+    } else {
+      toast.error(res.error || "No se pudo eliminar el gasto");
+    }
+  };
+
+  const handleExportExcel = () => {
+    const todayStamp = new Date().toISOString().split("T")[0];
+
+    if (activeTab === "summary") {
+      downloadExcelCsv(
+        `carissma-contabilidad-egresos-${todayStamp}`,
+        ["Fecha", "Categoría", "Descripción", "Monto (Bs)"],
+        [
+          ...expenses.map((e) => [
+            new Date(e.expenseDate).toLocaleDateString(),
+            e.category,
+            e.description,
+            e.amount,
+          ]),
+          ["", "", "TOTAL INGRESOS RENTAS", totalIncome],
+          ["", "", "GARANTÍAS EN CUSTODIA", summary.totalGuaranteesInCustody || 0],
+          ["", "", "TOTAL GASTOS OPERATIVOS", summary.totalExpenses || 0],
+          ["", "", "GANANCIA NETA", netProfit],
+        ]
+      );
+      toast.success("Archivo Excel de Egresos y Balance Carissma descargado");
+      return;
+    }
+
+    if (activeTab === "guarantees") {
+      downloadExcelCsv(
+        `carissma-alquileres-garantias-${todayStamp}`,
+        ["Contrato", "Clienta", "Teléfono", "Prenda", "Talla", "Color", "Inicio", "Retorno", "Alquiler (Bs)", "Garantía (Bs)", "Estado Garantía", "Estado Renta", "Pago"],
+        filteredGuarantees.map((b) => [
+          b.contractNumber,
+          b.clientName,
+          b.clientPhone || "",
+          b.dressName,
+          b.dressSize,
+          b.dressColor,
+          new Date(b.rentalStartDate).toLocaleDateString(),
+          new Date(b.rentalEndDate).toLocaleDateString(),
+          b.rentalPrice,
+          b.guaranteeAmount,
+          b.guaranteeStatus,
+          b.rentalStatus,
+          b.paymentMethod,
+        ])
+      );
+      toast.success("Archivo Excel de Alquileres y Garantías descargado");
+      return;
+    }
+
+    if (activeTab === "shifts") {
+      downloadExcelCsv(
+        `carissma-arqueos-caja-${todayStamp}`,
+        ["Fecha", "Cajero", "Apertura (Bs)", "Efectivo (Bs)", "QR (Bs)", "Tarjeta (Bs)", "Garantías Recibidas", "Garantías Devueltas", "Cierre Declarado", "Discrepancia"],
+        shifts.map((s) => [
+          s.shiftDate,
+          s.cashierName,
+          s.openingBalance,
+          s.totalSalesCash || 0,
+          s.totalSalesQR || 0,
+          s.totalSalesCard || 0,
+          s.totalGuaranteesInCustody || 0,
+          s.totalGuaranteesReturned || 0,
+          s.declaredCash || 0,
+          s.discrepancy || 0,
+        ])
+      );
+      toast.success("Archivo Excel de Arqueos Carissma descargado");
+      return;
+    }
+
+    downloadExcelCsv(
+      `carissma-rentabilidad-prendas-${todayStamp}`,
+      ["Prenda", "Marca", "Talla", "Usos", "Precio Renta Base (Bs)", "Costo Adquisición (Bs)", "Ingresos Estimados (Bs)", "ROI (%)"],
+      dresses.map((d) => {
+        const rev = (d.timesUsed || 0) * d.baseRentalPrice;
+        const roi = d.acquisitionCost > 0 ? Math.round((rev / d.acquisitionCost) * 100) : 0;
+        return [d.name, d.brand, d.size, d.timesUsed || 0, d.baseRentalPrice, d.acquisitionCost, rev, roi];
+      })
+    );
+    toast.success("Archivo Excel de Rentabilidad de Prendas descargado");
+  };
+
   const totalIncome = (summary?.totalRentalsRevenue || 0) + (summary?.totalPenaltiesRevenue || 0);
   const netProfit = totalIncome - (summary?.totalExpenses || 0);
 
@@ -230,7 +359,25 @@ export default function AccountingView() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto print:hidden">
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
+            title="Descargar reporte en formato Excel (.csv)"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Excel</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="px-3 py-2 bg-warm-100 hover:bg-warm-200 text-warm-800 border border-warm-200 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
+            title="Imprimir o guardar en PDF"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            <span>Imprimir / PDF</span>
+          </button>
           <button
             onClick={loadData}
             disabled={loading}
@@ -346,6 +493,7 @@ export default function AccountingView() {
                     <th className="p-3">Categoría</th>
                     <th className="p-3">Descripción</th>
                     <th className="p-3 text-right">Monto (Bs)</th>
+                    <th className="p-3 text-center print:hidden">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-warm-100 text-warm-900">
@@ -355,6 +503,16 @@ export default function AccountingView() {
                       <td className="p-3 font-semibold text-amberGold-900">{exp.category}</td>
                       <td className="p-3">{exp.description}</td>
                       <td className="p-3 font-bold text-rose-700 text-right">{formatCurrency(exp.amount)}</td>
+                      <td className="p-3 text-center print:hidden">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteExpense(exp)}
+                          className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 transition-colors inline-flex items-center justify-center"
+                          title="Eliminar gasto"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -373,9 +531,19 @@ export default function AccountingView() {
                       <p className="font-bold text-rose-700">{formatCurrency(exp.amount)}</p>
                     </div>
                   </div>
-                  <span className="inline-flex px-2 py-1 bg-amberGold-50 text-amberGold-900 rounded-md font-semibold text-[11px] border border-amberGold-200">
-                    {exp.category}
-                  </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex px-2 py-1 bg-amberGold-50 text-amberGold-900 rounded-md font-semibold text-[11px] border border-amberGold-200">
+                      {exp.category}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteExpense(exp)}
+                      className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 text-xs font-bold inline-flex items-center gap-1"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Eliminar</span>
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
@@ -475,6 +643,14 @@ export default function AccountingView() {
                           <Printer className="h-3 w-3" />
                           <span>Contrato</span>
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBooking(b)}
+                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 text-xs font-bold inline-flex items-center gap-1"
+                          title="Eliminar alquiler y liberar prenda"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -526,6 +702,14 @@ export default function AccountingView() {
                     >
                       <Printer className="h-4 w-4" />
                       <span>Contrato</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteBooking(b)}
+                      className="min-h-11 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span>Eliminar Alquiler</span>
                     </button>
                   </div>
                 </article>
@@ -765,6 +949,7 @@ export default function AccountingView() {
         isOpen={!!selectedContractBooking}
         booking={selectedContractBooking}
         onClose={() => setSelectedContractBooking(null)}
+        onDelete={handleDeleteBooking}
       />
     </div>
   );

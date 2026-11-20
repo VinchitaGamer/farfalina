@@ -134,7 +134,12 @@ async function main() {
 
   // Verificar CRMClient en BD SQLite
   const crmClient = await prisma.cRMClient.findUnique({
-    where: { phone: targetIgsid },
+    where: {
+      crmclient_phone_env_unique: {
+        phone: targetIgsid,
+        environment: "farfalina",
+      },
+    },
   });
 
   if (!crmClient) {

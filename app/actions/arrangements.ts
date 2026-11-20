@@ -11,16 +11,19 @@ const CreateArrangementSchema = z.object({
   price: z.number().positive("El precio debe ser positivo"),
   featured: z.boolean().default(false),
   image: z.string().url("Debe ser una URL válida de imagen"),
-  description: z.string().min(5, "La descripción es requerida"),
-  recipeItems: z.array(
-    z.object({
-      rawIngredientId: z.string(),
-      quantityNeeded: z.number().int().positive(),
-    })
-  ),
+  description: z.string().optional().default("").transform((v) => v.trim() || "Arreglo floral Florería Farfalina"),
+  recipeItems: z
+    .array(
+      z.object({
+        rawIngredientId: z.string(),
+        quantityNeeded: z.number().int().positive(),
+      })
+    )
+    .optional()
+    .default([]),
 });
 
-export type CreateArrangementInput = z.infer<typeof CreateArrangementSchema>;
+export type CreateArrangementInput = z.input<typeof CreateArrangementSchema>;
 
 export async function getArrangementsAction(): Promise<ActionResponse> {
   try {
@@ -74,10 +77,15 @@ const CreateRawIngredientSchema = z.object({
   type: z.string().min(1, "La categoría del insumo es requerida"),
   available: z.number().int().min(0),
   unit: z.string().min(1, "La unidad es requerida"),
-  warningThreshold: z.number().int().min(1).default(15),
+  warningThreshold: z.number().int().min(0).default(15),
   costPerUnit: z.number().min(0),
-  entryDate: z.string().optional().transform((val) => val ? new Date(val) : new Date()),
+  packageCost: z.number().min(0).nullable().optional(),
+  packageCount: z.number().int().min(0).nullable().optional(),
+  unitsPerPackage: z.number().int().min(0).nullable().optional(),
+  salePrice: z.number().min(0).nullable().optional(),
+  entryDate: z.string().optional().transform((val) => (val ? new Date(`${val.split("T")[0]}T12:00:00.000Z`) : new Date())),
   shelfLifeDays: z.number().int().min(0).nullable().optional(),
+  recordExpense: z.boolean().optional().default(true),
 });
 
 export type CreateRawIngredientInput = z.input<typeof CreateRawIngredientSchema>;
@@ -95,8 +103,91 @@ export async function createRawIngredientAction(
       };
     }
 
-    const newIngredient = await prisma.rawIngredient.create({
-      data: parsed.data,
+    const {
+      name,
+      type,
+      available,
+      unit,
+      warningThreshold,
+      costPerUnit,
+      packageCost,
+      packageCount,
+      unitsPerPackage,
+      salePrice,
+      entryDate,
+      shelfLifeDays,
+      recordExpense,
+    } = parsed.data;
+
+    const hasPackageMath =
+      typeof packageCost === "number" &&
+      packageCost > 0 &&
+      typeof packageCount === "number" &&
+      packageCount > 0 &&
+      typeof unitsPerPackage === "number" &&
+      unitsPerPackage > 0;
+
+    const computedUnits = hasPackageMath ? packageCount * unitsPerPackage : available;
+    const computedTotalCost = hasPackageMath
+      ? Number((packageCost * packageCount).toFixed(2))
+      : Number((available * costPerUnit).toFixed(2));
+    const computedUnitCost = hasPackageMath
+      ? Number((packageCost / unitsPerPackage).toFixed(2))
+      : costPerUnit;
+
+    const newIngredient = await prisma.$transaction(async (tx) => {
+      const created = await tx.rawIngredient.create({
+        data: {
+          name: name.trim(),
+          type: type.trim(),
+          available: computedUnits,
+          unit: unit.trim(),
+          warningThreshold,
+          costPerUnit: computedUnitCost,
+          packageCost: packageCost ?? null,
+          packageCount: packageCount ?? null,
+          unitsPerPackage: unitsPerPackage ?? null,
+          salePrice: salePrice ?? null,
+          entryDate,
+          shelfLifeDays: shelfLifeDays ?? null,
+        },
+      });
+
+      if (computedUnits > 0 && computedTotalCost > 0) {
+        await tx.ingredientPurchaseLog.create({
+          data: {
+            rawIngredientId: created.id,
+            ingredientName: created.name,
+            ingredientType: created.type,
+            unit: created.unit,
+            packageCost: packageCost ?? null,
+            packageCount: packageCount ?? null,
+            unitsPerPackage: unitsPerPackage ?? null,
+            totalUnits: computedUnits,
+            unitCost: computedUnitCost,
+            totalCost: computedTotalCost,
+            salePrice: salePrice ?? null,
+            notes: "Registro inicial de insumo",
+            purchasedAt: entryDate,
+          },
+        });
+
+        if (recordExpense) {
+          const packageInfo = hasPackageMath
+            ? ` (${packageCount} paq × ${unitsPerPackage} ${created.unit} @ ${packageCost} Bs/paq)`
+            : ` (${computedUnits} ${created.unit} @ ${computedUnitCost} Bs/u)`;
+          await tx.financialExpense.create({
+            data: {
+              category: "Insumos/Proveedores",
+              amount: computedTotalCost,
+              description: `Compra inventario: ${created.name}${packageInfo}`,
+              expenseDate: entryDate,
+            },
+          });
+        }
+      }
+
+      return created;
     });
 
     return {
@@ -113,14 +204,98 @@ export async function createRawIngredientAction(
   }
 }
 
+const UpdateRawIngredientSchema = z.object({
+  id: z.string().min(1, "ID de insumo requerido"),
+  name: z.string().min(2, "El nombre del insumo es requerido"),
+  type: z.string().min(1, "La categoría del insumo es requerida"),
+  available: z.number().int().min(0),
+  unit: z.string().min(1, "La unidad es requerida"),
+  warningThreshold: z.number().int().min(0).default(15),
+  costPerUnit: z.number().min(0),
+  packageCost: z.number().min(0).nullable().optional(),
+  packageCount: z.number().int().min(0).nullable().optional(),
+  unitsPerPackage: z.number().int().min(0).nullable().optional(),
+  salePrice: z.number().min(0).nullable().optional(),
+  entryDate: z.string().optional().transform((val) => (val ? new Date(`${val.split("T")[0]}T12:00:00.000Z`) : undefined)),
+  shelfLifeDays: z.number().int().min(0).nullable().optional(),
+});
+
+export type UpdateRawIngredientInput = z.input<typeof UpdateRawIngredientSchema>;
+
+export async function updateRawIngredientAction(
+  rawInput: UpdateRawIngredientInput
+): Promise<ActionResponse> {
+  try {
+    const parsed = UpdateRawIngredientSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues[0]?.message || "Datos del insumo inválidos",
+        code: "VALIDATION_ERROR",
+      };
+    }
+
+    const {
+      id,
+      name,
+      type,
+      available,
+      unit,
+      warningThreshold,
+      costPerUnit,
+      packageCost,
+      packageCount,
+      unitsPerPackage,
+      salePrice,
+      entryDate,
+      shelfLifeDays,
+    } = parsed.data;
+
+    const updated = await prisma.rawIngredient.update({
+      where: { id },
+      data: {
+        name: name.trim(),
+        type: type.trim(),
+        available,
+        unit: unit.trim(),
+        warningThreshold,
+        costPerUnit,
+        packageCost: packageCost ?? null,
+        packageCount: packageCount ?? null,
+        unitsPerPackage: unitsPerPackage ?? null,
+        salePrice: salePrice ?? null,
+        ...(entryDate ? { entryDate } : {}),
+        shelfLifeDays: shelfLifeDays ?? null,
+      },
+    });
+
+    return {
+      success: true,
+      data: updated,
+    };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "Error al actualizar insumo";
+    return {
+      success: false,
+      error: errorMessage,
+      code: "INGREDIENT_UPDATE_ERROR",
+    };
+  }
+}
+
 const RestockRawIngredientSchema = z.object({
   id: z.string().min(1, "ID de insumo no provisto"),
   quantityToAdd: z.number().int().positive("La cantidad a reabastecer debe ser mayor a 0"),
   newCostPerUnit: z.number().min(0).optional(),
+  packageCost: z.number().min(0).nullable().optional(),
+  packageCount: z.number().int().min(0).nullable().optional(),
+  unitsPerPackage: z.number().int().min(0).nullable().optional(),
+  newSalePrice: z.number().min(0).nullable().optional(),
   newShelfLifeDays: z.number().int().min(0).nullable().optional(),
+  recordExpense: z.boolean().optional().default(true),
 });
 
-export type RestockRawIngredientInput = z.infer<typeof RestockRawIngredientSchema>;
+export type RestockRawIngredientInput = z.input<typeof RestockRawIngredientSchema>;
 
 export async function restockRawIngredientAction(
   rawInput: RestockRawIngredientInput
@@ -135,16 +310,95 @@ export async function restockRawIngredientAction(
       };
     }
 
-    const { id, quantityToAdd, newCostPerUnit, newShelfLifeDays } = parsed.data;
+    const {
+      id,
+      quantityToAdd,
+      newCostPerUnit,
+      packageCost,
+      packageCount,
+      unitsPerPackage,
+      newSalePrice,
+      newShelfLifeDays,
+      recordExpense,
+    } = parsed.data;
 
-    const updated = await prisma.rawIngredient.update({
-      where: { id },
-      data: {
-        available: { increment: quantityToAdd },
-        entryDate: new Date(),
-        ...(newCostPerUnit !== undefined && newCostPerUnit > 0 && { costPerUnit: newCostPerUnit }),
-        ...(newShelfLifeDays !== undefined && { shelfLifeDays: newShelfLifeDays }),
-      },
+    const existing = await prisma.rawIngredient.findUnique({ where: { id } });
+    if (!existing) {
+      return {
+        success: false,
+        error: "Insumo no encontrado",
+        code: "NOT_FOUND",
+      };
+    }
+
+    const hasPackageMath =
+      typeof packageCost === "number" &&
+      packageCost > 0 &&
+      typeof packageCount === "number" &&
+      packageCount > 0 &&
+      typeof unitsPerPackage === "number" &&
+      unitsPerPackage > 0;
+
+    const unitsAdded = hasPackageMath ? packageCount * unitsPerPackage : quantityToAdd;
+    const unitCostUsed = hasPackageMath
+      ? Number((packageCost / unitsPerPackage).toFixed(2))
+      : newCostPerUnit !== undefined && newCostPerUnit > 0
+      ? newCostPerUnit
+      : existing.costPerUnit;
+    const totalCost = hasPackageMath
+      ? Number((packageCost * packageCount).toFixed(2))
+      : Number((unitsAdded * unitCostUsed).toFixed(2));
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const ing = await tx.rawIngredient.update({
+        where: { id },
+        data: {
+          available: { increment: unitsAdded },
+          entryDate: new Date(),
+          costPerUnit: unitCostUsed,
+          ...(packageCost !== undefined && { packageCost }),
+          ...(packageCount !== undefined && { packageCount }),
+          ...(unitsPerPackage !== undefined && { unitsPerPackage }),
+          ...(newSalePrice !== undefined && { salePrice: newSalePrice }),
+          ...(newShelfLifeDays !== undefined && { shelfLifeDays: newShelfLifeDays }),
+        },
+      });
+
+      if (unitsAdded > 0 && totalCost > 0) {
+        await tx.ingredientPurchaseLog.create({
+          data: {
+            rawIngredientId: ing.id,
+            ingredientName: ing.name,
+            ingredientType: ing.type,
+            unit: ing.unit,
+            packageCost: packageCost ?? null,
+            packageCount: packageCount ?? null,
+            unitsPerPackage: unitsPerPackage ?? null,
+            totalUnits: unitsAdded,
+            unitCost: unitCostUsed,
+            totalCost,
+            salePrice: newSalePrice ?? ing.salePrice ?? null,
+            notes: "Re-Stock de inventario",
+            purchasedAt: new Date(),
+          },
+        });
+
+        if (recordExpense) {
+          const packageInfo = hasPackageMath
+            ? ` (${packageCount} paq × ${unitsPerPackage} ${ing.unit} @ ${packageCost} Bs/paq)`
+            : ` (+${unitsAdded} ${ing.unit} @ ${unitCostUsed} Bs/u)`;
+          await tx.financialExpense.create({
+            data: {
+              category: "Insumos/Proveedores",
+              amount: totalCost,
+              description: `Re-Stock inventario: ${ing.name}${packageInfo}`,
+              expenseDate: new Date(),
+            },
+          });
+        }
+      }
+
+      return ing;
     });
 
     return {
@@ -223,6 +477,12 @@ const InventoryProductRowSchema = z.object({
   available: z.number(),
   warningThreshold: z.number(),
   unitCost: z.number(),
+  packageCost: z.number().nullable().optional(),
+  packageCount: z.number().nullable().optional(),
+  unitsPerPackage: z.number().nullable().optional(),
+  salePrice: z.number().nullable().optional(),
+  entryDate: z.string(),
+  shelfLifeDays: z.number().nullable().optional(),
   stockValueBs: z.number(),
   status: z.enum(["Disponible", "Stock Bajo", "Agotado"]),
   posSoldQty: z.number(),
@@ -233,9 +493,27 @@ const InventoryProductRowSchema = z.object({
 });
 export type InventoryProductRow = z.infer<typeof InventoryProductRowSchema>;
 
+const PurchaseHistoryRowSchema = z.object({
+  id: z.string(),
+  purchasedAt: z.string(),
+  ingredientName: z.string(),
+  ingredientType: z.string(),
+  unit: z.string(),
+  packageCost: z.number().nullable(),
+  packageCount: z.number().nullable(),
+  unitsPerPackage: z.number().nullable(),
+  totalUnits: z.number(),
+  unitCost: z.number(),
+  totalCost: z.number(),
+  salePrice: z.number().nullable(),
+  notes: z.string().nullable(),
+});
+export type PurchaseHistoryRow = z.infer<typeof PurchaseHistoryRowSchema>;
+
 const ConsumptionAnalyticsDataSchema = z.object({
   inventoryProducts: z.array(InventoryProductRowSchema),
   rows: z.array(ConsumptionRowSchema),
+  purchaseLogs: z.array(PurchaseHistoryRowSchema),
   summary: z.object({
     totalStockUnits: z.number(),
     totalStockValuationBs: z.number(),
@@ -244,6 +522,7 @@ const ConsumptionAnalyticsDataSchema = z.object({
     totalUnits: z.number(),
     totalCostBs: z.number(),
     totalMermas: z.number(),
+    totalPurchasedBs: z.number(),
     topConsumedName: z.string(),
   }),
 });
@@ -296,6 +575,32 @@ export async function getIngredientConsumptionAnalyticsAction(
         ticketItems: true,
       },
     });
+
+    // 4. Fetch Historical Purchase Logs in date range
+    const rawPurchaseLogs = await prisma.ingredientPurchaseLog.findMany({
+      where: {
+        purchasedAt: { gte: start, lte: end },
+        ...(query?.ingredientId && { rawIngredientId: query.ingredientId }),
+      },
+      orderBy: { purchasedAt: "desc" },
+    });
+
+    const purchaseLogs: PurchaseHistoryRow[] = rawPurchaseLogs.map((log) => ({
+      id: log.id,
+      purchasedAt: log.purchasedAt.toISOString().split("T")[0],
+      ingredientName: log.ingredientName,
+      ingredientType: log.ingredientType,
+      unit: log.unit,
+      packageCost: log.packageCost ?? null,
+      packageCount: log.packageCount ?? null,
+      unitsPerPackage: log.unitsPerPackage ?? null,
+      totalUnits: log.totalUnits,
+      unitCost: log.unitCost,
+      totalCost: log.totalCost,
+      salePrice: log.salePrice ?? null,
+      notes: log.notes ?? null,
+    }));
+    const totalPurchasedBs = purchaseLogs.reduce((acc, p) => acc + p.totalCost, 0);
 
     // Accumulators per ingredient ID for the whole period
     const ingPeriodStats = new Map<string, { pos: number; order: number; merma: number }>();
@@ -397,6 +702,12 @@ export async function getIngredientConsumptionAnalyticsAction(
         available,
         warningThreshold,
         unitCost: costPerUnit,
+        packageCost: ing.packageCost ?? null,
+        packageCount: ing.packageCount ?? null,
+        unitsPerPackage: ing.unitsPerPackage ?? null,
+        salePrice: ing.salePrice ?? null,
+        entryDate: ing.entryDate ? ing.entryDate.toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+        shelfLifeDays: ing.shelfLifeDays ?? null,
         stockValueBs,
         status,
         posSoldQty: stats.pos,
@@ -441,6 +752,7 @@ export async function getIngredientConsumptionAnalyticsAction(
       data: {
         inventoryProducts,
         rows,
+        purchaseLogs,
         summary: {
           totalStockUnits,
           totalStockValuationBs,
@@ -449,6 +761,7 @@ export async function getIngredientConsumptionAnalyticsAction(
           totalUnits,
           totalCostBs,
           totalMermas,
+          totalPurchasedBs,
           topConsumedName,
         },
       },
@@ -579,16 +892,19 @@ const UpdateArrangementSchema = z.object({
   price: z.number().positive("El precio debe ser positivo"),
   featured: z.boolean().default(false),
   image: z.string().url("Debe ser una URL válida de imagen"),
-  description: z.string().min(5, "La descripción es requerida"),
-  recipeItems: z.array(
-    z.object({
-      rawIngredientId: z.string(),
-      quantityNeeded: z.number().int().positive(),
-    })
-  ),
+  description: z.string().optional().default("").transform((v) => v.trim() || "Arreglo floral Florería Farfalina"),
+  recipeItems: z
+    .array(
+      z.object({
+        rawIngredientId: z.string(),
+        quantityNeeded: z.number().int().positive(),
+      })
+    )
+    .optional()
+    .default([]),
 });
 
-export type UpdateArrangementInput = z.infer<typeof UpdateArrangementSchema>;
+export type UpdateArrangementInput = z.input<typeof UpdateArrangementSchema>;
 
 export async function updateArrangementAction(
   rawInput: UpdateArrangementInput

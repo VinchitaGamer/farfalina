@@ -11,9 +11,13 @@ import {
   CheckCircle2,
   FileText,
   DollarSign,
-  Trash2
+  Trash2,
+  Edit2,
+  Save
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { getCarissmaConfigAction, updateCarissmaConfigAction } from "@/app/actions/carissma";
+import { toast } from "@/components/ui/toast";
 
 export interface RentalContractBooking {
   id: string;
@@ -37,6 +41,22 @@ export interface RentalContractBooking {
   createdAt?: string | Date;
 }
 
+type BoutiqueProfile = {
+  storeName: string;
+  storeSubtitle: string;
+  storeAddress: string;
+  storeCity: string;
+  storePhone: string;
+};
+
+const DEFAULT_BOUTIQUE_PROFILE: BoutiqueProfile = {
+  storeName: "CARISSMA",
+  storeSubtitle: "Alquiler de Vestidos Exclusivos & Asesoría de Imagen",
+  storeAddress: "",
+  storeCity: "La Paz, Bolivia",
+  storePhone: "",
+};
+
 interface RentalContractModalProps {
   isOpen: boolean;
   booking: RentalContractBooking | null;
@@ -48,14 +68,59 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
   const [mounted, setMounted] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
+  const [profile, setProfile] = useState<BoutiqueProfile>(DEFAULT_BOUTIQUE_PROFILE);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    const loadProfile = async () => {
+      const res = await getCarissmaConfigAction();
+      if (!active || !res.success || !res.data) return;
+      const cfg = res.data as Partial<BoutiqueProfile>;
+      setProfile({
+        storeName: cfg.storeName?.trim() || DEFAULT_BOUTIQUE_PROFILE.storeName,
+        storeSubtitle: cfg.storeSubtitle?.trim() || DEFAULT_BOUTIQUE_PROFILE.storeSubtitle,
+        storeAddress: cfg.storeAddress?.trim() || "",
+        storeCity: cfg.storeCity?.trim() || DEFAULT_BOUTIQUE_PROFILE.storeCity,
+        storePhone: cfg.storePhone?.trim() || "",
+      });
+    };
+    loadProfile();
+    return () => {
+      active = false;
+    };
+  }, [isOpen]);
 
   if (!isOpen || !booking || !mounted) return null;
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingProfile(true);
+    const res = await updateCarissmaConfigAction({
+      storeName: profile.storeName.trim() || DEFAULT_BOUTIQUE_PROFILE.storeName,
+      storeSubtitle: profile.storeSubtitle.trim() || DEFAULT_BOUTIQUE_PROFILE.storeSubtitle,
+      storeAddress: profile.storeAddress.trim(),
+      storeCity: profile.storeCity.trim() || DEFAULT_BOUTIQUE_PROFILE.storeCity,
+      storePhone: profile.storePhone.trim(),
+    });
+    setSavingProfile(false);
+
+    if (res.success) {
+      toast.success("Datos de la boutique guardados para todos los contratos");
+      setEditingProfile(false);
+    } else {
+      toast.error(res.error || "No se pudieron guardar los datos");
+    }
   };
 
   const formattedStartDate = new Date(booking.rentalStartDate).toLocaleDateString("es-ES", {
@@ -82,6 +147,14 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
 
   const totalPaid = booking.rentalPrice + booking.guaranteeAmount + (booking.penaltyFee || 0);
 
+  const contactLine = [
+    profile.storeAddress.trim(),
+    profile.storePhone.trim() ? `Teléfono / WhatsApp: ${profile.storePhone.trim()}` : "",
+    profile.storeCity.trim(),
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
   return createPortal(
     <div id="printable-modal-portal">
       <div
@@ -91,7 +164,7 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
       >
         <div className="bg-white rounded-3xl border border-warm-200 shadow-2xl max-w-4xl w-full flex flex-col max-h-[94dvh] overflow-y-auto print:overflow-visible print:max-h-none print:border-none print:shadow-none print:w-full print:rounded-none">
           {/* Header Bar (Hidden in Print) */}
-          <div className="p-4 sm:p-5 border-b border-warm-200 flex items-center justify-between bg-warm-50 print:hidden shrink-0">
+          <div className="p-4 sm:p-5 border-b border-warm-200 flex items-center justify-between gap-3 flex-wrap bg-warm-50 print:hidden shrink-0">
             <div className="flex items-center gap-3">
               <div className="p-2.5 bg-amberGold-600 text-white rounded-2xl shadow-warm">
                 <FileText className="h-5 w-5" />
@@ -105,13 +178,22 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setEditingProfile((prev) => !prev)}
+                className="px-3 py-2 bg-white hover:bg-warm-100 text-warm-800 border border-warm-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
+                title="Personalizar dirección, teléfono y ciudad que aparecen en el contrato"
+              >
+                <Edit2 className="h-3.5 w-3.5 text-amberGold-700" />
+                <span>{editingProfile ? "Ocultar Edición" : "Editar Datos Boutique"}</span>
+              </button>
               <button
                 onClick={handlePrint}
                 className="px-4 py-2 bg-amberGold-600 hover:bg-amberGold-700 active:bg-amberGold-800 text-white text-xs font-bold rounded-xl shadow-warm transition-all flex items-center gap-2"
               >
                 <Printer className="h-4 w-4" />
-                <span>Imprimir / Guardar PDF (1 Página Carta)</span>
+                <span>Imprimir / PDF (1 Página Carta)</span>
               </button>
               <button
                 onClick={onClose}
@@ -122,6 +204,96 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
               </button>
             </div>
           </div>
+
+          {/* Inline Boutique Profile Editor (Hidden in Print) */}
+          {editingProfile && (
+            <form
+              onSubmit={handleSaveProfile}
+              className="p-4 sm:p-5 bg-amberGold-50/60 border-b border-amberGold-200 space-y-3 print:hidden"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-bold text-amberGold-900">
+                    Datos Oficiales de la Boutique en Contratos
+                  </p>
+                  <p className="text-[11px] text-warm-600">
+                    Estos cambios se guardan en la base de datos y se aplican a todos los contratos PDF.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-700">Nombre de Marca</label>
+                  <input
+                    type="text"
+                    value={profile.storeName}
+                    onChange={(e) => setProfile({ ...profile, storeName: e.target.value })}
+                    placeholder="CARISSMA"
+                    className="w-full p-2 bg-white border border-warm-200 rounded-xl text-warm-900 font-semibold"
+                  />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="font-bold text-warm-700">Subtítulo / Rubro</label>
+                  <input
+                    type="text"
+                    value={profile.storeSubtitle}
+                    onChange={(e) => setProfile({ ...profile, storeSubtitle: e.target.value })}
+                    placeholder="Alquiler de Vestidos Exclusivos & Asesoría de Imagen"
+                    className="w-full p-2 bg-white border border-warm-200 rounded-xl text-warm-900"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-700">Dirección de la Boutique</label>
+                  <input
+                    type="text"
+                    value={profile.storeAddress}
+                    onChange={(e) => setProfile({ ...profile, storeAddress: e.target.value })}
+                    placeholder="Ej. Zona Sur, Calle 21..."
+                    className="w-full p-2 bg-white border border-warm-200 rounded-xl text-warm-900"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-700">Teléfono / WhatsApp</label>
+                  <input
+                    type="text"
+                    value={profile.storePhone}
+                    onChange={(e) => setProfile({ ...profile, storePhone: e.target.value })}
+                    placeholder="Ej. (+591) 7XXXXXXX"
+                    className="w-full p-2 bg-white border border-warm-200 rounded-xl text-warm-900 font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-700">Ciudad / País</label>
+                  <input
+                    type="text"
+                    value={profile.storeCity}
+                    onChange={(e) => setProfile({ ...profile, storeCity: e.target.value })}
+                    placeholder="La Paz, Bolivia"
+                    className="w-full p-2 bg-white border border-warm-200 rounded-xl text-warm-900"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingProfile(false)}
+                  className="px-3 py-1.5 bg-white hover:bg-warm-100 text-warm-700 rounded-xl text-xs font-bold border border-warm-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingProfile}
+                  className="px-4 py-1.5 bg-amberGold-600 hover:bg-amberGold-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  <span>{savingProfile ? "Guardando..." : "Guardar Datos"}</span>
+                </button>
+              </div>
+            </form>
+          )}
 
           {/* Printable Contract Document (Target for Print Engine) */}
           <div
@@ -135,18 +307,20 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2">
                   <span className="text-xl sm:text-2xl font-serif font-extrabold tracking-tight text-amberGold-900 uppercase">
-                    CARISSMA
+                    {profile.storeName}
                   </span>
                   <span className="text-[9px] font-bold uppercase tracking-widest bg-amberGold-100 text-amberGold-800 px-2 py-0.5 rounded">
                     Boutique & Alta Costura
                   </span>
                 </div>
                 <p className="text-[10px] font-semibold text-warm-700 tracking-wide uppercase">
-                  Alquiler de Vestidos Exclusivos & Asesoría de Imagen
+                  {profile.storeSubtitle}
                 </p>
-                <p className="text-[9px] text-warm-500">
-                  Av. San Martín #450 • Teléfono / WhatsApp: (+591) 76543210 • Cochabamba, Bolivia
-                </p>
+                {contactLine && (
+                  <p className="text-[9px] text-warm-500">
+                    {contactLine}
+                  </p>
+                )}
               </div>
               <div className="text-right space-y-0.5">
                 <span className="font-mono text-xs font-extrabold text-amberGold-900 bg-amberGold-50 px-2.5 py-0.5 rounded-lg border border-amberGold-300 inline-block">
@@ -279,7 +453,7 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
                   <strong>Compromiso de Retorno:</strong> El/La CLIENTE se compromete a devolver la prenda el día <strong>{formattedEndDate}</strong>. Cada día de retraso devengará el recargo por mora fijado en política de boutique.
                 </li>
                 <li>
-                  <strong>Prohibición Absoluta de Lavado Casero:</strong> Queda terminantemente prohibido lavar la prenda en casa, aplicar agua, detergentes o planchas calientes. El proceso de higienización en seco es realizado exclusivamente por Carissma.
+                  <strong>Prohibición Absoluta de Lavado Casero:</strong> Queda terminantemente prohibido lavar la prenda en casa, aplicar agua, detergentes o planchas calientes. El proceso de higienización en seco es realizado exclusivamente por {profile.storeName}.
                 </li>
                 <li>
                   <strong>Custodia y Reembolso de Garantía:</strong> La garantía de <strong>{formatCurrency(booking.guaranteeAmount)}</strong> será devuelta tras la verificación física de la prenda. En caso de quemaduras, roturas graves o pérdida de accesorios, se retendrá el monto necesario para su reemplazo.
@@ -298,7 +472,7 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
               </div>
 
               <div className="border-t-2 border-warm-800 pt-2 space-y-0.5">
-                <p className="font-extrabold text-warm-900 uppercase text-[10px]">Carissma Boutique</p>
+                <p className="font-extrabold text-warm-900 uppercase text-[10px]">{profile.storeName} Boutique</p>
                 <p className="text-[8.5px] text-warm-600">Firma Autorizada / Sello de Entrega</p>
                 <p className="text-[8px] font-bold text-warm-500 uppercase tracking-wider">
                   Recepción & Despacho Oficial
@@ -308,7 +482,7 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
 
             {/* Watermark / Print Footer */}
             <div className="text-center text-[7.5px] text-warm-400 border-t border-warm-200 pt-1">
-              Documento generado por el Sistema Enterprise Farfalina & Carissma SaaS • Validez Legal y de Control Interno.
+              Documento generado por el Sistema Farfalina & {profile.storeName} • Validez Legal y de Control Interno.
             </div>
           </div>
 
