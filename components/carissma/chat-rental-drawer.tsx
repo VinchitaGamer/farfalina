@@ -8,8 +8,14 @@ import {
   Check
 } from "lucide-react";
 import { getDressesAction, getCarissmaConfigAction, createRentalBookingAction } from "@/app/actions/carissma";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateBolivia, getBoliviaDateStr } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+
+function addDaysBolivia(ymd: string, days: number): string {
+  const base = new Date(`${ymd}T12:00:00.000Z`);
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
+}
 
 interface DressItem {
   id: string;
@@ -22,6 +28,7 @@ interface DressItem {
   requiredGuarantee: number;
   timesUsed: number;
   status: string;
+  condition?: string;
   color: string;
 }
 
@@ -65,10 +72,8 @@ export default function ChatRentalDrawer({
   const [defaultRentalDays, setDefaultRentalDays] = useState(3);
 
   // Form values
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [endDate, setEndDate] = useState(
-    new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
-  );
+  const [startDate, setStartDate] = useState(() => getBoliviaDateStr());
+  const [endDate, setEndDate] = useState(() => addDaysBolivia(getBoliviaDateStr(), 3));
   const [customPrice, setCustomPrice] = useState<number | string>("");
   const [customGuarantee, setCustomGuarantee] = useState<number | string>("");
   const [paymentMethod, setPaymentMethod] = useState<"Efectivo" | "QR" | "Tarjeta">("Efectivo");
@@ -77,10 +82,15 @@ export default function ChatRentalDrawer({
   useEffect(() => {
     if (isOpen) {
       // Clean phone and name
-      let cleanName = (rawClientName || "").replace(/\s*\([\+\d\s-]+\)$/, "").trim();
-      let cleanPhone = (rawClientPhone || "").replace(/@.+/, "").trim();
+      const cleanName = (rawClientName || "").replace(/\s*\([\+\d\s-]+\)$/, "").trim();
+      const cleanPhone = (rawClientPhone || "").replace(/@.+/, "").trim();
       setClientName(cleanName || "Clienta Mostrador");
       setClientPhone(cleanPhone || "");
+      setSelectedDress(null);
+      const todayYmd = getBoliviaDateStr();
+      setStartDate(todayYmd);
+      setEndDate(addDaysBolivia(todayYmd, defaultRentalDays));
+      setNotes("");
 
       loadData();
     }
@@ -108,10 +118,9 @@ export default function ChatRentalDrawer({
       setDefaultGuaranteePercent(c.defaultGuaranteePercent ?? 30.0);
       setDefaultRentalDays(c.defaultRentalDays ?? 3);
 
-      const calculatedEnd = new Date(Date.now() + (c.defaultRentalDays ?? 3) * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split("T")[0];
-      setEndDate(calculatedEnd);
+      const todayYmd = getBoliviaDateStr();
+      setStartDate(todayYmd);
+      setEndDate(addDaysBolivia(todayYmd, c.defaultRentalDays ?? 3));
     }
     setLoading(false);
   };
@@ -124,7 +133,7 @@ export default function ChatRentalDrawer({
     const maxDiscount = (100 - minFloorPercent) / 100;
     const depreciation = Math.min(maxDiscount, ((dress.timesUsed || 0) * decayRate) / 100);
     const suggestedPrice = Math.round(Math.max(base * (minFloorPercent / 100), base * (1 - depreciation)));
-    const suggestedGuarantee = Math.round(dress.requiredGuarantee || (base * defaultGuaranteePercent) / 100);
+    const suggestedGuarantee = Math.round(dress.requiredGuarantee ?? (base * defaultGuaranteePercent) / 100);
 
     setCustomPrice(suggestedPrice);
     setCustomGuarantee(suggestedGuarantee);
@@ -159,7 +168,7 @@ export default function ChatRentalDrawer({
       toast.success("¡Reserva y Contrato de Alquiler registrado exitosamente!");
 
       // Copy WhatsApp confirmation template to clipboard
-      const confirmText = `👗 *Confirmación de Reserva — Carissma Alquileres*\n\n¡Hola ${clientName}! Tu reserva ha sido confirmada con éxito:\n\n📜 *Contrato:* ${booking.contractNumber}\n✨ *Prenda:* ${selectedDress.name} (${selectedDress.brand})\n📏 *Talla / Color:* ${selectedDress.size} • ${selectedDress.color}\n📅 *Fecha Retiro:* ${new Date(startDate).toLocaleDateString()}\n📅 *Fecha Devolución:* ${new Date(endDate).toLocaleDateString()}\n\n💰 *Tarifa de Renta:* ${formatCurrency(Number(customPrice))}\n🛡️ *Garantía en Custodia:* ${formatCurrency(Number(customGuarantee))}\n💳 *Método de Pago:* ${paymentMethod}\n\n*Nota:* La garantía se devuelve íntegramente al retornar la prenda en buen estado. ¡Gracias por tu preferencia!`;
+      const confirmText = `👗 *Confirmación de Reserva — Carissma Alquileres*\n\n¡Hola ${clientName}! Tu reserva ha sido confirmada con éxito:\n\n📜 *Contrato:* ${booking.contractNumber}\n✨ *Prenda:* ${selectedDress.name} (${selectedDress.brand})\n📏 *Talla / Color:* ${selectedDress.size} • ${selectedDress.color}\n📅 *Fecha Retiro:* ${formatDateBolivia(startDate)}\n📅 *Fecha Devolución:* ${formatDateBolivia(endDate)}\n\n💰 *Tarifa de Renta:* ${formatCurrency(Number(customPrice))}\n🛡️ *Garantía en Custodia:* ${formatCurrency(Number(customGuarantee))}\n💳 *Método de Pago:* ${paymentMethod}\n\n*Nota:* La garantía se devuelve íntegramente al retornar la prenda en buen estado. ¡Gracias por tu preferencia!`;
 
       if (navigator.clipboard) {
         navigator.clipboard.writeText(confirmText).catch(() => {});
@@ -183,7 +192,8 @@ export default function ChatRentalDrawer({
       d.color.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = categoryFilter === "Todos" || d.category === categoryFilter;
     const matchesSize = sizeFilter === "Todos" || d.size === sizeFilter;
-    return matchesSearch && matchesCategory && matchesSize && d.status === "Disponible";
+    const isSelectable = d.condition !== "Requiere Mantenimiento";
+    return matchesSearch && matchesCategory && matchesSize && isSelectable;
   });
 
   return (
@@ -271,6 +281,8 @@ export default function ChatRentalDrawer({
                 <option value="Novia">Novia</option>
                 <option value="Quinceañera">Quinceañera</option>
                 <option value="Coctel">Coctel</option>
+                <option value="Graduación">Graduación</option>
+                <option value="Fiesta">Fiesta</option>
               </select>
               <select
                 value={sizeFilter}
@@ -306,7 +318,14 @@ export default function ChatRentalDrawer({
                           : "bg-white border-warm-200 hover:border-amberGold-300"
                       }`}
                     >
-                      <p className="font-bold text-warm-900 line-clamp-1">{d.name}</p>
+                      <div className="flex items-center justify-between gap-1">
+                        <p className="font-bold text-warm-900 line-clamp-1">{d.name}</p>
+                        {d.status !== "Disponible" && (
+                          <span className="shrink-0 text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                            {d.status}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[10px] text-warm-500">Talla {d.size} • {d.color}</p>
                       <div className="flex justify-between items-center mt-1 pt-1 border-t border-warm-100">
                         <span className="font-bold text-amberGold-800">{formatCurrency(d.baseRentalPrice || 450)}</span>

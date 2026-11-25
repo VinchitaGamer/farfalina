@@ -25,12 +25,14 @@ export interface SystemState {
   // Notification Drawer
   notificationDrawerOpen: boolean;
   dismissedNotificationIds: string[];
+  activeNotificationsCount: number;
 
   // Modals & Card printer
   cardPrinterModalOpen: boolean;
   activeCardText: { client: string; recipient: string; message: string; date: string } | null;
   registerOpen: boolean;
   registerBalance: number;
+  carissmaRegisterOpen: boolean;
   mobileMenuOpen: boolean;
 
   // Actions
@@ -42,6 +44,7 @@ export interface SystemState {
   setOrdersViewMode: (mode: "calendar" | "kanban" | "agenda") => void;
   setOrdersAgendaFilter: (filter: "today" | "week" | "month") => void;
   setNotificationDrawerOpen: (open: boolean) => void;
+  setActiveNotificationsCount: (count: number) => void;
   dismissNotification: (id: string) => void;
   clearDismissedNotifications: () => void;
 
@@ -55,6 +58,7 @@ export interface SystemState {
   openCardPrinter: (card: { client: string; recipient: string; message: string; date: string }) => void;
   closeCardPrinter: () => void;
   toggleRegister: (open: boolean, amount?: number) => void;
+  setCarissmaRegisterOpen: (open: boolean) => void;
   setMobileMenuOpen: (open: boolean) => void;
 }
 
@@ -70,11 +74,13 @@ export const useAppStore = create<SystemState>((set) => ({
 
   notificationDrawerOpen: false,
   dismissedNotificationIds: [],
+  activeNotificationsCount: 0,
 
   cardPrinterModalOpen: false,
   activeCardText: null,
   registerOpen: false,
   registerBalance: 0,
+  carissmaRegisterOpen: false,
   mobileMenuOpen: false,
 
   setActiveSystem: (system) => set({ activeSystem: system }),
@@ -85,8 +91,13 @@ export const useAppStore = create<SystemState>((set) => ({
   setOrdersViewMode: (mode) => set({ ordersViewMode: mode }),
   setOrdersAgendaFilter: (filter) => set({ ordersAgendaFilter: filter }),
   setNotificationDrawerOpen: (open) => set({ notificationDrawerOpen: open }),
+  setActiveNotificationsCount: (count) => set({ activeNotificationsCount: count }),
   dismissNotification: (id) =>
-    set((state) => ({ dismissedNotificationIds: [...state.dismissedNotificationIds, id] })),
+    set((state) => ({
+      dismissedNotificationIds: state.dismissedNotificationIds.includes(id)
+        ? state.dismissedNotificationIds
+        : [...state.dismissedNotificationIds, id],
+    })),
   clearDismissedNotifications: () => set({ dismissedNotificationIds: [] }),
 
   navigateToInventoryStock: (searchQuery = "") =>
@@ -137,5 +148,6 @@ export const useAppStore = create<SystemState>((set) => ({
   openCardPrinter: (card) => set({ cardPrinterModalOpen: true, activeCardText: card }),
   closeCardPrinter: () => set({ cardPrinterModalOpen: false, activeCardText: null }),
   toggleRegister: (open, amount = 0) => set({ registerOpen: open, registerBalance: amount }),
+  setCarissmaRegisterOpen: (open) => set({ carissmaRegisterOpen: open }),
   setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),
 }));

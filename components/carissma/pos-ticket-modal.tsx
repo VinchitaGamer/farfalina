@@ -8,7 +8,8 @@ import {
   Shirt,
   FileText
 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateBolivia } from "@/lib/utils";
+import { getCarissmaConfigAction } from "@/app/actions/carissma";
 
 export interface CarissmaPOSTicketData {
   contractNumber: string;
@@ -41,11 +42,29 @@ interface POSTicketModalProps {
 
 export default function POSTicketModal({ isOpen, ticketData, onClose, onOpenContract }: POSTicketModalProps) {
   const [mounted, setMounted] = useState(false);
+  const [storeName, setStoreName] = useState("CARISSMA");
+  const [storeSubtitle, setStoreSubtitle] = useState("ALQUILER DE VESTIDOS DE GALA");
+  const [storePhone, setStorePhone] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    getCarissmaConfigAction().then((res) => {
+      if (!active || !res.success || !res.data) return;
+      const cfg = res.data as { storeName?: string | null; storeSubtitle?: string | null; storePhone?: string | null };
+      if (cfg.storeName?.trim()) setStoreName(cfg.storeName.trim());
+      if (cfg.storeSubtitle?.trim()) setStoreSubtitle(cfg.storeSubtitle.trim());
+      if (cfg.storePhone?.trim()) setStorePhone(cfg.storePhone.trim());
+    });
+    return () => {
+      active = false;
+    };
+  }, [isOpen]);
 
   if (!isOpen || !ticketData || !mounted) return null;
 
@@ -98,19 +117,20 @@ export default function POSTicketModal({ isOpen, ticketData, onClose, onOpenCont
         {/* Printable Ticket Receipt */}
         <div ref={printRef} className="p-6 overflow-y-auto space-y-4 text-xs font-mono text-warm-900 bg-white print:p-0">
           <div className="text-center space-y-0.5 border-b border-dashed border-warm-300 pb-3">
-            <h1 className="text-base font-extrabold uppercase tracking-wider text-amberGold-900 font-sans">CARISSMA</h1>
-            <p className="text-[10px] text-warm-600 font-sans">ALQUILER DE VESTIDOS DE GALA</p>
+            <h1 className="text-base font-extrabold uppercase tracking-wider text-amberGold-900 font-sans">{storeName}</h1>
+            <p className="text-[10px] text-warm-600 font-sans uppercase">{storeSubtitle}</p>
+            {storePhone && <p className="text-[9px] text-warm-500">Tel: {storePhone}</p>}
             <p className="text-[9px] text-warm-400">Comprobante Oficial Mostrador</p>
           </div>
 
           <div className="space-y-1 text-[11px] border-b border-dashed border-warm-300 pb-2">
             <p><strong>Contrato:</strong> {ticketData.contractNumber}</p>
-            <p><strong>Fecha:</strong> {new Date(ticketData.date).toLocaleString()}</p>
+            <p><strong>Fecha:</strong> {new Date(ticketData.date).toLocaleString("es-BO")}</p>
             <p><strong>Clienta:</strong> {ticketData.clientName}</p>
             {ticketData.clientPhone && <p><strong>Tel:</strong> {ticketData.clientPhone}</p>}
             <p><strong>Cajero:</strong> {ticketData.cashierName || "Agente Carissma"}</p>
-            <p><strong>Retiro:</strong> {ticketData.rentalStartDate}</p>
-            <p><strong>Devolución:</strong> {ticketData.rentalEndDate}</p>
+            <p><strong>Retiro:</strong> {formatDateBolivia(ticketData.rentalStartDate)}</p>
+            <p><strong>Devolución:</strong> {formatDateBolivia(ticketData.rentalEndDate)}</p>
           </div>
 
           {/* Items */}

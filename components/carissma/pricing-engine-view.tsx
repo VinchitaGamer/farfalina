@@ -134,10 +134,16 @@ export default function PricingEngineView() {
   // Dynamic Depreciation Algorithm:
   // Depreciation = min(1 - FloorPercent/100, (Usages * (DecayRate / 100)))
   // Suggested Price = max(Base * FloorPercent/100, Base * (1 - Depreciation))
+  const selectedDress = dresses.find((d) => d.id === selectedDressId) || null;
   const maxPossibleDiscount = (100 - minFloorPercent) / 100;
   const calculatedDepreciation = Math.min(maxPossibleDiscount, (numUsage * decayRate) / 100);
-  const suggestedRentalPrice = Math.max(numBase * (minFloorPercent / 100), numBase * (1 - calculatedDepreciation));
-  const suggestedGuarantee = Math.round((numBase * defaultGuaranteePercent) / 100);
+  const suggestedRentalPrice = Math.round(
+    Math.max(numBase * (minFloorPercent / 100), numBase * (1 - calculatedDepreciation))
+  );
+  const suggestedGuarantee =
+    selectedDress?.requiredGuarantee != null
+      ? Math.round(selectedDress.requiredGuarantee)
+      : Math.round((numBase * defaultGuaranteePercent) / 100);
 
   return (
     <div className="space-y-6">

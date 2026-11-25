@@ -131,7 +131,6 @@ export default function EditArrangementModal({
       featured,
       image: image.trim(),
       description: description.trim() || "Arreglo floral Florería Farfalina",
-      recipeItems: [],
     });
 
     setLoading(false);
@@ -305,9 +304,10 @@ export default function EditArrangementModal({
           <div className="space-y-1">
             <label className="text-xs font-bold text-warm-800">URL Fotografía *</label>
             <input
-              type="url"
+              type="text"
               value={image}
               onChange={(e) => setImage(e.target.value)}
+              placeholder="https://..."
               className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-xs text-warm-900 focus:outline-none focus:border-terracotta-500 font-mono"
               required
             />

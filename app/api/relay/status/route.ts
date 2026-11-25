@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { z } from "zod";
+
+const RelayEnvQuerySchema = z.enum(["all", "farfalina", "carissma"]).catch("all");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,7 +20,7 @@ export async function OPTIONS() {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const env = searchParams.get("environment") || "all";
+    const env = RelayEnvQuerySchema.parse(searchParams.get("environment") || "all");
 
     const environments = env === "all" ? ["farfalina", "carissma"] : [env];
 

@@ -15,7 +15,7 @@ import {
   Phone,
 } from "lucide-react";
 import { createUnifiedTicketAction } from "@/app/actions/logistics";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getBoliviaDateStr } from "@/lib/utils";
 import { buildDeliveryWhatsAppMessage } from "@/lib/delivery-whatsapp";
 import { toast } from "@/components/ui/toast";
 
@@ -78,7 +78,7 @@ export default function ChatOrderDrawer({
   const [address, setAddress] = useState("");
   const [zone, setZone] = useState("");
   const [mapsUrl, setMapsUrl] = useState("");
-  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split("T")[0]);
+  const [deliveryDate, setDeliveryDate] = useState(getBoliviaDateStr());
   const [deliveryTime, setDeliveryTime] = useState("");
 
   const [arrangementName, setArrangementName] = useState("");
@@ -183,9 +183,14 @@ export default function ChatOrderDrawer({
       toast.success("¡Pedido / Ticket Manual registrado exitosamente!");
       setArrangementName("");
       setSalePrice("");
+      setDeliveryType("pickup");
       setDeliveryFee("0");
       setAddress("");
+      setZone("");
       setMapsUrl("");
+      setDeliveryDate(getBoliviaDateStr());
+      setDeliveryTime("");
+      setPaymentMethod("Efectivo");
       setRecipientPhone("");
       setDedicationMessage("");
       onSuccess();

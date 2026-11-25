@@ -27,7 +27,10 @@ export default function PosShiftDrawer({ activeShift, archivedShifts, onShiftCha
   const [activeShiftReport, setActiveShiftReport] = useState<ShiftReportData | null>(null);
 
   const handleOpenShift = async () => {
-    const res = await openCashShiftAction(Number(openingAmount));
+    if (loading) return;
+    setLoading(true);
+    const res = await openCashShiftAction(Number(openingAmount) || 0);
+    setLoading(false);
     if (res.success) {
       toast.success("Caja abierta correctamente");
       onShiftChange();
@@ -93,7 +96,16 @@ export default function PosShiftDrawer({ activeShift, archivedShifts, onShiftCha
 
           {activeShift ? (
             <button
-              onClick={() => setCloseShiftModalOpen(true)}
+              onClick={() => {
+                const expectedCash = Math.max(
+                  0,
+                  (activeShift.openingBalance || 0) +
+                    (activeShift.totalSalesCash || 0) -
+                    (activeShift.totalExpenses || 0)
+                );
+                setDeclaredCash(expectedCash);
+                setCloseShiftModalOpen(true);
+              }}
               className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm"
             >
               <Lock className="h-4 w-4" />
@@ -111,10 +123,11 @@ export default function PosShiftDrawer({ activeShift, archivedShifts, onShiftCha
               />
               <button
                 onClick={handleOpenShift}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm"
+                disabled={loading}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"
               >
                 <Unlock className="h-4 w-4" />
-                Abrir Nueva Caja
+                {loading ? "Abriendo..." : "Abrir Nueva Caja"}
               </button>
             </div>
           )}
@@ -239,7 +252,7 @@ export default function PosShiftDrawer({ activeShift, archivedShifts, onShiftCha
                   <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-warm-200 pt-3 text-xs">
                     <div><dt className="text-warm-500">Apertura</dt><dd className="font-mono text-warm-700">{formatCurrency(s.openingBalance)}</dd></div>
                     <div><dt className="text-warm-500">Ventas efectivo</dt><dd className="font-mono text-emerald-700">{formatCurrency(s.totalSalesCash)}</dd></div>
-                    <div><dt className="text-warm-500">Ventas QR</dt><dd className="font-mono text-blue-700">{formatCurrency(s.totalSalesQR)}</dd></div>
+                    <div><dt className="text-warm-500">Ventas QR / Tarjeta</dt><dd className="font-mono text-blue-700">{formatCurrency((s.totalSalesQR || 0) + (s.totalSalesCard || 0))}</dd></div>
                     <div><dt className="text-warm-500">Saldo declarado</dt><dd className="font-mono font-bold text-warm-900">{formatCurrency(s.closingBalance || 0)}</dd></div>
                   </dl>
                   <button

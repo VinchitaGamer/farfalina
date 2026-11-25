@@ -27,8 +27,8 @@
 
     button,
     [role="button"] {
-      min-width: 44px !important;
-      min-height: 44px !important;
+      min-width: 44px;
+      min-height: 44px;
     }
   }
 }
@@ -124,6 +124,12 @@ input[type="number"] {
     display: none !important;
   }
 
+  main {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
   /* Ensure modal portal flows naturally on paper */
   #printable-modal-portal {
     display: block !important;
@@ -135,8 +141,8 @@ input[type="number"] {
     overflow: visible !important;
   }
 
-  #printable-modal-portal .fixed,
-  #printable-modal-portal [role="dialog"] {
+  #printable-modal-portal > .fixed,
+  #printable-modal-portal > [role="dialog"] {
     position: static !important;
     inset: auto !important;
     background: transparent !important;
@@ -146,14 +152,15 @@ input[type="number"] {
     display: block !important;
   }
 
-  #printable-modal-portal .bg-white {
+  #printable-modal-portal > .fixed > .bg-white:not(.keep-print-box),
+  #printable-modal-portal > [role="dialog"] > .bg-white:not(.keep-print-box),
+  #printable-modal-portal > .bg-white:not(.keep-print-box) {
     max-height: none !important;
     max-width: 100% !important;
     width: 100% !important;
     border: none !important;
     box-shadow: none !important;
     border-radius: 0 !important;
-    padding: 0 !important;
     margin: 0 !important;
     overflow: visible !important;
     background: #FFFFFF !important;

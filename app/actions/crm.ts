@@ -3,6 +3,8 @@
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { ActionResponse } from "@/types/action-response";
+import { buildPhoneLookupCandidates } from "@/lib/crm-utils";
+import { parseBoliviaNoonUtc } from "@/lib/utils";
 
 // -------------------------------------------------------------
 // Schemas
@@ -157,12 +159,17 @@ export async function searchCRMClientsAction(
       return { success: true, data: clients };
     }
 
+    const phoneCandidates = buildPhoneLookupCandidates(q);
+    const digitsOnly = q.replace(/\D/g, "");
+
     const clients = await prisma.cRMClient.findMany({
       where: {
         environment: env,
         OR: [
           { name: { contains: q, mode: "insensitive" } },
           { phone: { contains: q } },
+          ...(digitsOnly.length >= 4 ? [{ phone: { contains: digitsOnly } }] : []),
+          ...(phoneCandidates.length > 0 ? [{ phone: { in: phoneCandidates } }] : []),
         ],
       },
       take: 8,
@@ -243,12 +250,11 @@ export async function createCRMClientAction(rawInput: CreateClientInput): Promis
       };
     }
 
-    const existing = await prisma.cRMClient.findUnique({
+    const phoneCandidates = buildPhoneLookupCandidates(cleanPhone);
+    const existing = await prisma.cRMClient.findFirst({
       where: {
-        crmclient_phone_env_unique: {
-          phone: cleanPhone,
-          environment,
-        },
+        environment,
+        phone: { in: phoneCandidates },
       },
     });
 
@@ -306,12 +312,43 @@ export async function updateCRMClientAction(rawInput: UpdateClientInput): Promis
 
     const { id, name, phone, favoriteFlower, notes } = parsed.data;
     const cleanPhone = phone.replace(/\D/g, "");
+    if (!cleanPhone || cleanPhone.length < 6) {
+      return {
+        success: false,
+        error: "El número de teléfono debe contener al menos 6 dígitos.",
+        code: "INVALID_PHONE",
+      };
+    }
+
+    const currentClient = await prisma.cRMClient.findUnique({ where: { id } });
+    if (!currentClient) {
+      return {
+        success: false,
+        error: "Cliente no encontrado",
+        code: "NOT_FOUND",
+      };
+    }
+
+    const duplicate = await prisma.cRMClient.findFirst({
+      where: {
+        id: { not: id },
+        environment: currentClient.environment,
+        phone: { in: buildPhoneLookupCandidates(cleanPhone) },
+      },
+    });
+    if (duplicate) {
+      return {
+        success: false,
+        error: `Ya existe otro cliente registrado con ese número (${duplicate.name}).`,
+        code: "DUPLICATE_PHONE",
+      };
+    }
 
     const updated = await prisma.cRMClient.update({
       where: { id },
       data: {
         name: name.trim(),
-        phone: cleanPhone || phone,
+        phone: cleanPhone,
         favoriteFlower: favoriteFlower?.trim() || null,
         notes: notes?.trim() || null,
       },
@@ -378,9 +415,8 @@ export async function createContentCampaignAction(rawInput: ContentCampaignInput
       clientId,
     } = parsed.data;
 
-    const start = new Date(startDate);
-    const end = new Date(start);
-    end.setDate(end.getDate() + (durationDays - 1));
+    const start = parseBoliviaNoonUtc(startDate);
+    const end = new Date(start.getTime() + (durationDays - 1) * 86_400_000);
 
     const campaign = await prisma.contentCampaign.create({
       data: {
@@ -447,9 +483,8 @@ export async function updateContentCampaignAction(rawInput: ContentCampaignInput
       clientId,
     } = parsed.data;
 
-    const start = new Date(startDate);
-    const end = new Date(start);
-    end.setDate(end.getDate() + (durationDays - 1));
+    const start = parseBoliviaNoonUtc(startDate);
+    const end = new Date(start.getTime() + (durationDays - 1) * 86_400_000);
 
     const updated = await prisma.contentCampaign.update({
       where: { id },

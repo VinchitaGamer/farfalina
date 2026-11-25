@@ -20,10 +20,11 @@ import {
   updateDressAction,
   deleteDressAction,
   createRentalBookingAction,
+  deleteRentalBookingAction,
   getCarissmaConfigAction
 } from "@/app/actions/carissma";
 import RentalContractModal, { RentalContractBooking } from "./rental-contract-modal";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getBoliviaDateStr } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 
 interface DressItem {
@@ -43,6 +44,7 @@ interface DressItem {
 }
 
 export default function CatalogView() {
+  const confirm = useConfirm();
 
   const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
   const [selectedSize, setSelectedSize] = useState<string>("Todos");
@@ -59,16 +61,24 @@ export default function CatalogView() {
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingDress, setEditingDress] = useState<DressItem | null>(null);
+  const [editPriceStr, setEditPriceStr] = useState<string>("");
+  const [editGuaranteeStr, setEditGuaranteeStr] = useState<string>("");
+  const [editAcqCostStr, setEditAcqCostStr] = useState<string>("");
 
   // Checkout Modal
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   const [contractBooking, setContractBooking] = useState<RentalContractBooking | null>(null);
+  const [contractBookingsList, setContractBookingsList] = useState<RentalContractBooking[]>([]);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
   const [deliveryType, setDeliveryType] = useState<"store" | "delivery">("store");
   const [address, setAddress] = useState("");
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [endDate, setEndDate] = useState(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]);
+  const [startDate, setStartDate] = useState(() => getBoliviaDateStr());
+  const [endDate, setEndDate] = useState(() =>
+    getBoliviaDateStr(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000))
+  );
+  const [decayRate, setDecayRate] = useState(5.0);
+  const [minFloorPercent, setMinFloorPercent] = useState(40.0);
   const [paymentMethod, setPaymentMethod] = useState<"Efectivo" | "QR" | "Tarjeta">("Efectivo");
   const [notes, setNotes] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -88,11 +98,29 @@ export default function CatalogView() {
     loadCatalog();
   }, []);
 
+  const computeSuggestedPrice = (dress: DressItem) => {
+    const base = dress.baseRentalPrice || 450;
+    const maxDiscount = (100 - minFloorPercent) / 100;
+    const dep = Math.min(maxDiscount, ((dress.timesUsed || 0) * decayRate) / 100);
+    return Math.round(Math.max(base * (minFloorPercent / 100), base * (1 - dep)));
+  };
+
   const loadCatalog = async () => {
     setLoading(true);
-    const res = await getDressesAction();
+    const [res, cfgRes] = await Promise.all([getDressesAction(), getCarissmaConfigAction()]);
     if (res.success && Array.isArray(res.data)) {
       setDresses(res.data as DressItem[]);
+    }
+    if (cfgRes.success && cfgRes.data) {
+      const cfg = cfgRes.data as {
+        defaultRentalDays?: number;
+        decayRatePerUsage?: number;
+        minPriceFloorPercent?: number;
+      };
+      if (typeof cfg.decayRatePerUsage === "number") setDecayRate(cfg.decayRatePerUsage);
+      if (typeof cfg.minPriceFloorPercent === "number") setMinFloorPercent(cfg.minPriceFloorPercent);
+      const days = cfg.defaultRentalDays ?? 3;
+      setEndDate(getBoliviaDateStr(new Date(Date.now() + days * 24 * 60 * 60 * 1000)));
     }
     setLoading(false);
   };
@@ -132,14 +160,16 @@ export default function CatalogView() {
 
     const res = await updateDressAction({
       id: editingDress.id,
-      name: editingDress.name,
-      brand: editingDress.brand,
+      name: editingDress.name.trim(),
+      brand: editingDress.brand.trim(),
       category: editingDress.category || "Gala",
       size: editingDress.size,
-      color: editingDress.color,
-      baseRentalPrice: Number(editingDress.baseRentalPrice),
-      requiredGuarantee: Number(editingDress.requiredGuarantee),
-      imageUrl: editingDress.imageUrl,
+      color: editingDress.color.trim(),
+      condition: (editingDress.condition as "Excelente" | "Bueno" | "Requiere Mantenimiento") || "Excelente",
+      baseRentalPrice: Number(editPriceStr) || editingDress.baseRentalPrice,
+      acquisitionCost: Number(editAcqCostStr) || editingDress.acquisitionCost,
+      requiredGuarantee: editGuaranteeStr === "" ? 0 : Number(editGuaranteeStr),
+      imageUrl: editingDress.imageUrl?.trim() || null,
     });
 
     if (res.success) {
@@ -177,8 +207,12 @@ export default function CatalogView() {
   };
 
   const addToCart = (dress: DressItem) => {
-    if (dress.status !== "Disponible") {
-      toast.error(`El vestido "${dress.name}" no está disponible actualmente (${dress.status})`);
+    if (dress.condition === "Requiere Mantenimiento") {
+      toast.error(`El vestido "${dress.name}" se encuentra en mantenimiento`);
+      return;
+    }
+    if (dress.status === "En Lavandería" && startDate <= getBoliviaDateStr()) {
+      toast.error(`El vestido "${dress.name}" está en tintorería para retiro inmediato`);
       return;
     }
     const exists = cart.find((c) => c.dress.id === dress.id);
@@ -194,20 +228,25 @@ export default function CatalogView() {
     setCart(cart.filter((c) => c.dress.id !== id));
   };
 
-  const totalRentalPrice = cart.reduce((acc, c) => acc + (c.dress.baseRentalPrice || 450), 0);
-  const totalGuarantee = cart.reduce((acc, c) => acc + (c.dress.requiredGuarantee || 500), 0);
+  const totalRentalPrice = cart.reduce((acc, c) => acc + computeSuggestedPrice(c.dress), 0);
+  const totalGuarantee = cart.reduce((acc, c) => acc + (c.dress.requiredGuarantee ?? 500), 0);
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (cart.length === 0) return;
+    if (isProcessing || cart.length === 0) return;
     if (!clientName.trim()) {
       toast.error("El nombre de la clienta es requerido");
       return;
     }
+    if (endDate < startDate) {
+      toast.error("La fecha de retorno no puede ser anterior a la fecha de retiro");
+      return;
+    }
 
     setIsProcessing(true);
-    let successCount = 0;
     const createdBookings: RentalContractBooking[] = [];
+    const failedItems: typeof cart = [];
+    const errorMessages: string[] = [];
 
     for (const item of cart) {
       const res = await createRentalBookingAction({
@@ -216,28 +255,41 @@ export default function CatalogView() {
         dressId: item.dress.id,
         rentalStartDate: startDate,
         rentalEndDate: endDate,
-        rentalPrice: item.dress.baseRentalPrice,
-        guaranteeAmount: item.dress.requiredGuarantee,
+        rentalPrice: computeSuggestedPrice(item.dress),
+        guaranteeAmount: item.dress.requiredGuarantee ?? 500,
         paymentMethod,
         notes: `${deliveryType === "delivery" ? "Envío a domicilio: " + address : "Retiro en probador/tienda"}. ${notes}`.trim(),
       });
 
       if (res.success && res.data) {
-        successCount++;
         createdBookings.push(res.data as unknown as RentalContractBooking);
+      } else {
+        failedItems.push(item);
+        if (res.error) errorMessages.push(res.error);
       }
     }
 
-    if (successCount > 0) {
-      toast.success(`¡${successCount} contrato(s) de alquiler registrado(s) con éxito!`);
-      setCart([]);
-      setCheckoutModalOpen(false);
-      if (createdBookings.length > 0) {
-        setContractBooking(createdBookings[0]);
+    if (createdBookings.length > 0) {
+      if (failedItems.length > 0) {
+        toast.error(
+          `Se generaron ${createdBookings.length} contrato(s), pero ${failedItems.length} fallaron: ${errorMessages[0]}`
+        );
+      } else {
+        toast.success(`¡${createdBookings.length} contrato(s) de alquiler registrado(s) con éxito!`);
       }
+      setCart(failedItems);
+      if (failedItems.length === 0) {
+        setCheckoutModalOpen(false);
+        setClientName("");
+        setClientPhone("");
+        setAddress("");
+        setNotes("");
+      }
+      setContractBooking(createdBookings[0]);
+      setContractBookingsList(createdBookings);
       loadCatalog();
     } else {
-      toast.error("Error al procesar los contratos de alquiler");
+      toast.error(errorMessages[0] || "Error al procesar los contratos de alquiler");
     }
     setIsProcessing(false);
   };
@@ -422,12 +474,12 @@ export default function CatalogView() {
                     <div className="flex justify-between items-center">
                       <span className="text-warm-500 text-[11px]">Tarifa Renta:</span>
                       <span className="font-bold text-amberGold-800 text-sm">
-                        {formatCurrency(dress.baseRentalPrice || 450)}
+                        {formatCurrency(computeSuggestedPrice(dress))}
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-[10px] text-warm-500">
                       <span>Garantía en Custodia:</span>
-                      <span className="font-bold text-emerald-700">{formatCurrency(dress.requiredGuarantee || 500)}</span>
+                      <span className="font-bold text-emerald-700">{formatCurrency(dress.requiredGuarantee ?? 500)}</span>
                     </div>
                     <div className="flex justify-between items-center text-[10px] text-warm-400">
                       <span>Historial de Usos:</span>
@@ -442,6 +494,9 @@ export default function CatalogView() {
                 <button
                   onClick={() => {
                     setEditingDress(dress);
+                    setEditPriceStr(String(dress.baseRentalPrice ?? 450));
+                    setEditGuaranteeStr(String(dress.requiredGuarantee ?? 500));
+                    setEditAcqCostStr(String(dress.acquisitionCost ?? 1200));
                     setIsEditModalOpen(true);
                   }}
                   className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 bg-warm-100 hover:bg-warm-200 text-warm-700 rounded-xl transition-colors touch-manipulation active:scale-95"
@@ -460,11 +515,11 @@ export default function CatalogView() {
                 </button>
                 <button
                   onClick={() => addToCart(dress)}
-                  disabled={dress.status !== "Disponible"}
+                  disabled={dress.condition === "Requiere Mantenimiento"}
                   className="flex-1 min-h-[44px] py-2 px-3 bg-amberGold-600 hover:bg-amberGold-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-warm flex items-center justify-center gap-1.5 touch-manipulation active:scale-98"
                 >
                   <ShoppingCart className="h-4 w-4" />
-                  <span>Alquilar</span>
+                  <span>{dress.status === "Disponible" ? "Alquilar" : "Reservar Fecha"}</span>
                 </button>
               </div>
             </div>
@@ -769,7 +824,7 @@ export default function CatalogView() {
               <div className="space-y-1">
                 <label className="font-bold text-warm-800">URL Fotografía del Vestido</label>
                 <input
-                  type="url"
+                  type="text"
                   value={newImageUrl}
                   onChange={(e) => setNewImageUrl(e.target.value)}
                   placeholder="https://..."
@@ -832,14 +887,58 @@ export default function CatalogView() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-800">Categoría</label>
+                  <select
+                    value={editingDress.category || "Gala"}
+                    onChange={(e) => setEditingDress({ ...editingDress, category: e.target.value })}
+                    className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-warm-900"
+                  >
+                    <option value="Gala">Gala</option>
+                    <option value="Novia">Novia</option>
+                    <option value="Quinceañera">Quinceañera</option>
+                    <option value="Coctel">Coctel</option>
+                    <option value="Graduación">Graduación</option>
+                    <option value="Fiesta">Fiesta</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-800">Talla</label>
+                  <select
+                    value={editingDress.size}
+                    onChange={(e) =>
+                      setEditingDress({ ...editingDress, size: e.target.value as DressItem["size"] })
+                    }
+                    className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-warm-900 font-bold"
+                  >
+                    <option value="XS">XS</option>
+                    <option value="S">S</option>
+                    <option value="M">M</option>
+                    <option value="L">L</option>
+                    <option value="XL">XL</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-800">Color</label>
+                  <input
+                    type="text"
+                    value={editingDress.color}
+                    onChange={(e) => setEditingDress({ ...editingDress, color: e.target.value })}
+                    className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-warm-900"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <label className="font-bold text-warm-800">Tarifa Renta (Bs)</label>
                   <input
                     type="text"
                     inputMode="decimal"
-                    value={editingDress.baseRentalPrice}
-                    onChange={(e) => setEditingDress({ ...editingDress, baseRentalPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) })}
+                    value={editPriceStr}
+                    onChange={(e) => setEditPriceStr(e.target.value.replace(/[^0-9.]/g, ""))}
                     className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl font-mono font-bold text-warm-900"
                     required
                   />
@@ -849,22 +948,46 @@ export default function CatalogView() {
                   <input
                     type="text"
                     inputMode="decimal"
-                    value={editingDress.requiredGuarantee}
-                    onChange={(e) => setEditingDress({ ...editingDress, requiredGuarantee: Number(e.target.value.replace(/[^0-9.]/g, "")) })}
+                    value={editGuaranteeStr}
+                    onChange={(e) => setEditGuaranteeStr(e.target.value.replace(/[^0-9.]/g, ""))}
                     className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl font-mono font-bold text-emerald-700"
                     required
                   />
                 </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-800">Costo Adq. (Bs)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={editAcqCostStr}
+                    onChange={(e) => setEditAcqCostStr(e.target.value.replace(/[^0-9.]/g, ""))}
+                    className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl font-mono text-warm-800"
+                  />
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="font-bold text-warm-800">URL Imagen</label>
-                <input
-                  type="url"
-                  value={editingDress.imageUrl || ""}
-                  onChange={(e) => setEditingDress({ ...editingDress, imageUrl: e.target.value })}
-                  className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-warm-900"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-800">Condición Física</label>
+                  <select
+                    value={editingDress.condition || "Excelente"}
+                    onChange={(e) => setEditingDress({ ...editingDress, condition: e.target.value })}
+                    className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-warm-900"
+                  >
+                    <option value="Excelente">Excelente</option>
+                    <option value="Bueno">Bueno</option>
+                    <option value="Requiere Mantenimiento">Requiere Mantenimiento</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-800">URL Imagen</label>
+                  <input
+                    type="text"
+                    value={editingDress.imageUrl || ""}
+                    onChange={(e) => setEditingDress({ ...editingDress, imageUrl: e.target.value })}
+                    className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-warm-900"
+                  />
+                </div>
               </div>
 
               <div className="pt-3 flex justify-end gap-2 border-t border-warm-100">
@@ -890,7 +1013,24 @@ export default function CatalogView() {
       <RentalContractModal
         isOpen={!!contractBooking}
         booking={contractBooking}
-        onClose={() => setContractBooking(null)}
+        bookings={contractBookingsList}
+        onClose={() => {
+          setContractBooking(null);
+          setContractBookingsList([]);
+        }}
+        onDelete={async (b) => {
+          const ok = await confirm(`¿Deseas anular el contrato ${b.contractNumber} y liberar "${b.dressName}"?`);
+          if (!ok) return;
+          const res = await deleteRentalBookingAction(b.id);
+          if (res.success) {
+            toast.success(`Contrato ${b.contractNumber} anulado`);
+            setContractBooking(null);
+            setContractBookingsList([]);
+            loadCatalog();
+          } else {
+            toast.error(res.error || "No se pudo anular el contrato");
+          }
+        }}
       />
     </div>
   );

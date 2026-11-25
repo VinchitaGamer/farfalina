@@ -15,7 +15,7 @@ import {
   Edit2,
   Save
 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, extractCalendarDateStr, BOLIVIA_TIMEZONE } from "@/lib/utils";
 import { getCarissmaConfigAction, updateCarissmaConfigAction } from "@/app/actions/carissma";
 import { toast } from "@/components/ui/toast";
 
@@ -60,12 +60,20 @@ const DEFAULT_BOUTIQUE_PROFILE: BoutiqueProfile = {
 interface RentalContractModalProps {
   isOpen: boolean;
   booking: RentalContractBooking | null;
+  bookings?: RentalContractBooking[];
   onClose: () => void;
   onDelete?: (booking: { id: string; contractNumber: string; clientName: string; dressName: string }) => void;
 }
 
-export default function RentalContractModal({ isOpen, booking, onClose, onDelete }: RentalContractModalProps) {
+export default function RentalContractModal({
+  isOpen,
+  booking,
+  bookings,
+  onClose,
+  onDelete,
+}: RentalContractModalProps) {
   const [mounted, setMounted] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(0);
   const printRef = useRef<HTMLDivElement>(null);
 
   const [profile, setProfile] = useState<BoutiqueProfile>(DEFAULT_BOUTIQUE_PROFILE);
@@ -75,6 +83,12 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedIdx(0);
+    }
+  }, [isOpen, booking, bookings]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -97,7 +111,10 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
     };
   }, [isOpen]);
 
-  if (!isOpen || !booking || !mounted) return null;
+  const list = bookings && bookings.length > 0 ? bookings : booking ? [booking] : [];
+  const activeBooking = list[selectedIdx] || booking;
+
+  if (!isOpen || !activeBooking || !mounted) return null;
 
   const handlePrint = () => {
     window.print();
@@ -123,29 +140,35 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
     }
   };
 
-  const formattedStartDate = new Date(booking.rentalStartDate).toLocaleDateString("es-ES", {
+  const startNoon = new Date(`${extractCalendarDateStr(activeBooking.rentalStartDate)}T12:00:00.000Z`);
+  const endNoon = new Date(`${extractCalendarDateStr(activeBooking.rentalEndDate)}T12:00:00.000Z`);
+
+  const formattedStartDate = startNoon.toLocaleDateString("es-BO", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: BOLIVIA_TIMEZONE,
   });
 
-  const formattedEndDate = new Date(booking.rentalEndDate).toLocaleDateString("es-ES", {
+  const formattedEndDate = endNoon.toLocaleDateString("es-BO", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: BOLIVIA_TIMEZONE,
   });
 
-  const emissionDate = new Date(booking.createdAt || Date.now()).toLocaleDateString("es-ES", {
+  const emissionDate = new Date(activeBooking.createdAt || Date.now()).toLocaleDateString("es-BO", {
     year: "numeric",
     month: "long",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: BOLIVIA_TIMEZONE,
   });
 
-  const totalPaid = booking.rentalPrice + booking.guaranteeAmount + (booking.penaltyFee || 0);
+  const totalPaid = activeBooking.rentalPrice + activeBooking.guaranteeAmount + (activeBooking.penaltyFee || 0);
 
   const contactLine = [
     profile.storeAddress.trim(),
@@ -174,11 +197,29 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
                   Contrato de Alquiler de Vestido & Acta de Entrega
                 </h2>
                 <p className="text-xs text-warm-500 font-mono">
-                  Folio Oficial: #{booking.contractNumber}
+                  Folio Oficial: #{activeBooking.contractNumber}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              {list.length > 1 && (
+                <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-warm-200">
+                  {list.map((bItem, i) => (
+                    <button
+                      key={bItem.id || i}
+                      type="button"
+                      onClick={() => setSelectedIdx(i)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                        selectedIdx === i
+                          ? "bg-amberGold-600 text-white shadow-xs"
+                          : "text-warm-600 hover:bg-warm-100"
+                      }`}
+                    >
+                      Prenda {i + 1}
+                    </button>
+                  ))}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => setEditingProfile((prev) => !prev)}
@@ -324,7 +365,7 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
               </div>
               <div className="text-right space-y-0.5">
                 <span className="font-mono text-xs font-extrabold text-amberGold-900 bg-amberGold-50 px-2.5 py-0.5 rounded-lg border border-amberGold-300 inline-block">
-                  CONTRATO N° {booking.contractNumber}
+                  CONTRATO N° {activeBooking.contractNumber}
                 </span>
                 <p className="text-[9px] text-warm-500 block">
                   Fecha de Emisión: <strong>{emissionDate}</strong>
@@ -348,10 +389,10 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
                   <User className="h-3 w-3" />
                   1. Datos del Cliente (Arrendatario)
                 </p>
-                <p className="text-[11px] font-extrabold text-warm-900">{booking.clientName}</p>
+                <p className="text-[11px] font-extrabold text-warm-900">{activeBooking.clientName}</p>
                 <div className="grid grid-cols-2 gap-1 text-[9.5px] text-warm-700">
-                  <p>Teléfono: <strong>{booking.clientPhone || "No registrado"}</strong></p>
-                  <p>C.I. / DNI: <strong>{booking.clientCI || "Verificado en tienda"}</strong></p>
+                  <p>Teléfono: <strong>{activeBooking.clientPhone || "No registrado"}</strong></p>
+                  <p>C.I. / DNI: <strong>{activeBooking.clientCI || "Verificado en tienda"}</strong></p>
                 </div>
                 <p className="text-[8.5px] text-warm-500">
                   Calidad: <em>Cliente Titular y Responsable Solidario</em>
@@ -364,11 +405,11 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
                   <Shirt className="h-3 w-3" />
                   2. Identificación del Vestuario
                 </p>
-                <p className="text-[11px] font-extrabold text-warm-900">{booking.dressName}</p>
+                <p className="text-[11px] font-extrabold text-warm-900">{activeBooking.dressName}</p>
                 <div className="grid grid-cols-3 gap-1 text-[9.5px] text-warm-700">
-                  <p>Talla: <strong>{booking.dressSize}</strong></p>
-                  <p>Color: <strong>{booking.dressColor}</strong></p>
-                  <p>Marca: <strong>{booking.dressBrand || "Carissma Gold"}</strong></p>
+                  <p>Talla: <strong>{activeBooking.dressSize}</strong></p>
+                  <p>Color: <strong>{activeBooking.dressColor}</strong></p>
+                  <p>Marca: <strong>{activeBooking.dressBrand || "Carissma Gold"}</strong></p>
                 </div>
                 <p className="text-[8.5px] text-emerald-700 font-semibold flex items-center gap-0.5">
                   <CheckCircle2 className="h-2.5 w-2.5" /> Entrega: Limpio, planchado y con accesorios completos.
@@ -413,25 +454,25 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
                     <tr>
                       <td className="p-1.5 pl-2 font-semibold text-warm-900">Alquiler de Prenda Exclusiva</td>
                       <td className="p-1.5 text-warm-600">Servicio por el período acordado + tintorería estándar incluida</td>
-                      <td className="p-1.5 pr-2 text-right font-bold text-warm-900">{formatCurrency(booking.rentalPrice)}</td>
+                      <td className="p-1.5 pr-2 text-right font-bold text-warm-900">{formatCurrency(activeBooking.rentalPrice)}</td>
                     </tr>
                     <tr className="bg-emerald-50/40">
                       <td className="p-1.5 pl-2 font-semibold text-emerald-900">Depósito de Garantía (En Custodia)</td>
                       <td className="p-1.5 text-emerald-700 text-[8.5px]">
                         Reembolsable al 100% contra devolución puntual y en óptimo estado
                       </td>
-                      <td className="p-1.5 pr-2 text-right font-bold text-emerald-700">{formatCurrency(booking.guaranteeAmount)}</td>
+                      <td className="p-1.5 pr-2 text-right font-bold text-emerald-700">{formatCurrency(activeBooking.guaranteeAmount)}</td>
                     </tr>
-                    {(booking.penaltyFee ?? 0) > 0 && (
+                    {(activeBooking.penaltyFee ?? 0) > 0 && (
                       <tr className="bg-rose-50/40">
                         <td className="p-1.5 pl-2 font-semibold text-rose-900">Penalización / Daños Aplicados</td>
                         <td className="p-1.5 text-rose-700 text-[8.5px]">Retención acordada</td>
-                        <td className="p-1.5 pr-2 text-right font-bold text-rose-700">{formatCurrency(booking.penaltyFee || 0)}</td>
+                        <td className="p-1.5 pr-2 text-right font-bold text-rose-700">{formatCurrency(activeBooking.penaltyFee || 0)}</td>
                       </tr>
                     )}
                     <tr className="bg-warm-100 font-bold text-[10px]">
                       <td colSpan={2} className="p-1.5 pl-2 text-right uppercase text-warm-800">
-                        Total Percibido en Mostrador (Método: {booking.paymentMethod}):
+                        Total Percibido en Mostrador (Método: {activeBooking.paymentMethod}):
                       </td>
                       <td className="p-1.5 pr-2 text-right text-amberGold-900 text-[11px] font-extrabold">{formatCurrency(totalPaid)}</td>
                     </tr>
@@ -456,7 +497,7 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
                   <strong>Prohibición Absoluta de Lavado Casero:</strong> Queda terminantemente prohibido lavar la prenda en casa, aplicar agua, detergentes o planchas calientes. El proceso de higienización en seco es realizado exclusivamente por {profile.storeName}.
                 </li>
                 <li>
-                  <strong>Custodia y Reembolso de Garantía:</strong> La garantía de <strong>{formatCurrency(booking.guaranteeAmount)}</strong> será devuelta tras la verificación física de la prenda. En caso de quemaduras, roturas graves o pérdida de accesorios, se retendrá el monto necesario para su reemplazo.
+                  <strong>Custodia y Reembolso de Garantía:</strong> La garantía de <strong>{formatCurrency(activeBooking.guaranteeAmount)}</strong> será devuelta tras la verificación física de la prenda. En caso de quemaduras, roturas graves o pérdida de accesorios, se retendrá el monto necesario para su reemplazo.
                 </li>
               </ol>
             </div>
@@ -464,8 +505,8 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
             {/* Section 6: Official Signatures Box with generous signing area */}
             <div className="grid grid-cols-2 gap-12 pt-16 pb-2 text-center text-[9.5px]">
               <div className="border-t-2 border-warm-800 pt-2 space-y-0.5">
-                <p className="font-extrabold text-warm-900 uppercase text-[10px]">{booking.clientName}</p>
-                <p className="text-[8.5px] text-warm-600">C.I.: {booking.clientCI || "..........................."}</p>
+                <p className="font-extrabold text-warm-900 uppercase text-[10px]">{activeBooking.clientName}</p>
+                <p className="text-[8.5px] text-warm-600">C.I.: {activeBooking.clientCI || "..........................."}</p>
                 <p className="text-[8px] font-bold text-warm-500 uppercase tracking-wider">
                   Firma del Cliente (Recepción Conforme & Aceptación)
                 </p>
@@ -494,7 +535,7 @@ export default function RentalContractModal({ isOpen, booking, onClose, onDelete
                   type="button"
                   onClick={() => {
                     onClose();
-                    onDelete(booking);
+                    onDelete(activeBooking);
                   }}
                   className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-xs border border-rose-200 transition-colors flex items-center gap-1.5"
                   title="Eliminar este contrato y liberar prenda"

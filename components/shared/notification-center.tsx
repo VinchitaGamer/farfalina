@@ -22,8 +22,10 @@ import { cn } from "@/lib/utils";
 export default function NotificationCenter() {
   const router = useRouter();
   const {
+    activeSystem,
     notificationDrawerOpen,
     setNotificationDrawerOpen,
+    setActiveNotificationsCount,
     dismissedNotificationIds,
     dismissNotification,
     clearDismissedNotifications,
@@ -38,27 +40,30 @@ export default function NotificationCenter() {
   const [loading, setLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState<"all" | "inventory" | "logistics" | "register" | "crm" | "omnichannel">("all");
 
-  useEffect(() => {
-    loadNotifications();
-    // Auto refresh every 45 seconds
-    const timer = setInterval(() => {
-      loadNotifications();
-    }, 45000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const loadNotifications = async () => {
+  const loadNotifications = React.useCallback(async () => {
     setLoading(true);
-    const res = await getSystemNotificationsAction();
+    const res = await getSystemNotificationsAction(activeSystem);
     if (res.success && Array.isArray(res.data)) {
       setNotifications(res.data);
     }
     setLoading(false);
-  };
+  }, [activeSystem]);
+
+  useEffect(() => {
+    loadNotifications();
+    const timer = setInterval(() => {
+      loadNotifications();
+    }, 45000);
+    return () => clearInterval(timer);
+  }, [loadNotifications]);
 
   const activeNotifications = notifications.filter(
     (n) => !dismissedNotificationIds.includes(n.id)
   );
+
+  useEffect(() => {
+    setActiveNotificationsCount(activeNotifications.length);
+  }, [activeNotifications.length, setActiveNotificationsCount]);
 
   const filteredNotifications = activeNotifications.filter((n) => {
     if (activeFilter === "all") return true;
@@ -66,15 +71,33 @@ export default function NotificationCenter() {
   });
 
   const handleActionClick = (n: SystemNotification) => {
+    if (activeSystem === "carissma") {
+      if (n.category === "inventory") {
+        router.push("/carissma/pos");
+      } else if (n.category === "logistics") {
+        router.push("/carissma/orders");
+      } else if (n.category === "register") {
+        router.push("/carissma/pos");
+      } else if (n.category === "crm") {
+        router.push("/carissma/crm");
+      } else if (n.category === "omnichannel") {
+        router.push("/carissma/omnichannel");
+      }
+      setNotificationDrawerOpen(false);
+      return;
+    }
+
     if (n.category === "inventory") {
       navigateToInventoryStock(n.targetSearch || "");
-      router.push(`/floreria/pos?tab=stock${n.targetSearch ? `&search=${n.targetSearch}` : ""}`);
+      router.push(
+        `/floreria/pos?tab=stock${n.targetSearch ? `&search=${encodeURIComponent(n.targetSearch)}` : ""}`
+      );
     } else if (n.category === "logistics") {
       navigateToTodayAgenda();
       router.push("/floreria/orders");
     } else if (n.category === "register") {
       navigateToCashRegister();
-      router.push("/floreria/accounting");
+      router.push("/floreria/pos?tab=register");
     } else if (n.category === "crm") {
       navigateToCRM();
       router.push("/floreria/crm");
@@ -88,11 +111,11 @@ export default function NotificationCenter() {
   if (!notificationDrawerOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex justify-end print:hidden" role="dialog" aria-modal="true">
       {/* Backdrop */}
       <div
         onClick={() => setNotificationDrawerOpen(false)}
-        className="fixed inset-0 bg-warm-950/50 backdrop-blur-xs transition-opacity animate-in fade-in"
+        className="fixed inset-0 bg-warm-950/50 backdrop-blur-sm transition-opacity animate-in fade-in"
       />
 
       {/* Drawer Panel */}
@@ -188,6 +211,30 @@ export default function NotificationCenter() {
           >
             <DollarSign className="h-3.5 w-3.5 shrink-0" />
             <span>Caja</span>
+          </button>
+          <button
+            onClick={() => setActiveFilter("omnichannel")}
+            className={cn(
+              "min-h-[44px] px-3 py-2 rounded-lg transition-all whitespace-nowrap shrink-0 active:scale-95 touch-manipulation flex items-center gap-1.5",
+              activeFilter === "omnichannel"
+                ? "bg-terracotta-500 text-white shadow-sm"
+                : "bg-warm-100 text-warm-700 hover:bg-warm-200"
+            )}
+          >
+            <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+            <span>Mensajes</span>
+          </button>
+          <button
+            onClick={() => setActiveFilter("crm")}
+            className={cn(
+              "min-h-[44px] px-3 py-2 rounded-lg transition-all whitespace-nowrap shrink-0 active:scale-95 touch-manipulation flex items-center gap-1.5",
+              activeFilter === "crm"
+                ? "bg-terracotta-500 text-white shadow-sm"
+                : "bg-warm-100 text-warm-700 hover:bg-warm-200"
+            )}
+          >
+            <Users className="h-3.5 w-3.5 shrink-0" />
+            <span>CRM</span>
           </button>
           <div className="w-1 shrink-0" aria-hidden="true" />
         </div>

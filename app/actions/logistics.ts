@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { ActionResponse } from "@/types/action-response";
-import { calculateLoyaltyTier, sanitizeClientPhoneAndName } from "@/lib/crm-utils";
+import { calculateLoyaltyTier, sanitizeClientPhoneAndName, buildPhoneLookupCandidates } from "@/lib/crm-utils";
 
 const CreateOrderSchema = z.object({
   clientName: z
@@ -125,7 +125,7 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
     const finalZone = deliveryType === "pickup" ? "Tienda Central" : zone;
     const finalDeliveryFee = deliveryType === "pickup" ? 0 : deliveryFee;
 
-    const suffix = `${Date.now().toString().slice(-6)}`;
+    const suffix = `${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 90 + 10)}`;
     const orderNumber = `PED-${suffix}`;
     const ticketNumber = `TCK-${suffix}`;
 
@@ -246,12 +246,11 @@ export async function createUnifiedTicketAction(rawInput: CreateOrderInput): Pro
       const cleanClientName = sanitized.name;
 
       if (cleanPhone && cleanPhone.length >= 6) {
-        const existingClient = await tx.cRMClient.findUnique({
+        const phoneCandidates = buildPhoneLookupCandidates(cleanPhone);
+        const existingClient = await tx.cRMClient.findFirst({
           where: {
-            crmclient_phone_env_unique: {
-              phone: cleanPhone,
-              environment: "farfalina",
-            },
+            environment: "farfalina",
+            phone: { in: phoneCandidates },
           },
         });
 
@@ -417,34 +416,132 @@ export async function updateOrderAction(rawInput: UpdateOrderInput): Promise<Act
       status,
     } = parsed.data;
 
+    const existingOrder = await prisma.orderDelivery.findUnique({
+      where: { id },
+    });
+
+    if (!existingOrder) {
+      return {
+        success: false,
+        error: "El pedido no existe",
+        code: "NOT_FOUND",
+      };
+    }
+
     const dateParts = deliveryDate.split("T")[0];
     const parsedDate = new Date(`${dateParts}T12:00:00.000Z`);
+    const finalDeliveryFee = deliveryType === "pickup" ? 0 : deliveryFee;
+    const finalZone = deliveryType === "pickup" ? "Tienda Central" : zone;
 
-    const updated = await prisma.orderDelivery.update({
-      where: { id },
-      data: {
-        clientName,
-        clientPhone: clientPhone?.trim() || "",
-        recipientName: recipientName || clientName,
-        recipientPhone: recipientPhone?.trim() || null,
-        address: deliveryType === "pickup" ? "Retiro en Tienda / Local" : address,
-        zone: deliveryType === "pickup" ? "Tienda Central" : zone,
-        mapsUrl: deliveryType === "pickup" ? null : mapsUrl?.trim() || null,
-        deliveryDate: parsedDate,
-        deliveryTime,
-        arrangementName,
-        salePrice,
-        deliveryFee: deliveryType === "pickup" ? 0 : deliveryFee,
-        total,
-        paymentMethod,
-        dedicationMessage,
-        status,
-      },
-      include: {
-        recipeItems: {
-          include: { rawIngredient: true },
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedOrder = await tx.orderDelivery.update({
+        where: { id },
+        data: {
+          clientName,
+          clientPhone: clientPhone?.trim() || "",
+          recipientName: recipientName || clientName,
+          recipientPhone: recipientPhone?.trim() || null,
+          address: deliveryType === "pickup" ? "Retiro en Tienda / Local" : address,
+          zone: finalZone,
+          mapsUrl: deliveryType === "pickup" ? null : mapsUrl?.trim() || null,
+          deliveryDate: parsedDate,
+          deliveryTime,
+          arrangementName,
+          salePrice,
+          deliveryFee: finalDeliveryFee,
+          total,
+          paymentMethod,
+          dedicationMessage,
+          status,
         },
-      },
+        include: {
+          recipeItems: {
+            include: { rawIngredient: true },
+          },
+        },
+      });
+
+      // Keep paired POSTicket synchronized when price, items, or payment method changes
+      const candidateTickets: string[] = [];
+      if (existingOrder.linkedTicketNumber) candidateTickets.push(existingOrder.linkedTicketNumber);
+      if (existingOrder.orderNumber.startsWith("PED-")) {
+        candidateTickets.push(`TCK-${existingOrder.orderNumber.slice(4)}`);
+      }
+      if (candidateTickets.length > 0) {
+        const pairedTicket = await tx.pOSTicket.findFirst({
+          where: { ticketNumber: { in: candidateTickets } },
+        });
+        if (pairedTicket) {
+          await tx.pOSTicketItem.deleteMany({ where: { ticketId: pairedTicket.id } });
+          await tx.pOSTicket.update({
+            where: { id: pairedTicket.id },
+            data: {
+              customerName: clientName,
+              customerPhone: clientPhone?.trim() || "",
+              totalAmount: total,
+              paymentMethod,
+              ticketItems: {
+                create: [
+                  { itemName: arrangementName, price: salePrice, quantity: 1 },
+                  ...(finalDeliveryFee > 0
+                    ? [{ itemName: `Servicio de Delivery (${finalZone})`, price: finalDeliveryFee, quantity: 1 }]
+                    : []),
+                ],
+              },
+            },
+          });
+        }
+      }
+
+      // Adjust Open CashRegisterShift buckets if order belongs to the active shift
+      if (existingOrder.total !== total || existingOrder.paymentMethod !== paymentMethod) {
+        const activeShift = await tx.cashRegisterShift.findFirst({
+          where: { status: "Open" },
+          orderBy: { createdAt: "desc" },
+        });
+        if (activeShift && existingOrder.createdAt >= activeShift.createdAt) {
+          let nextCash = activeShift.totalSalesCash;
+          let nextQR = activeShift.totalSalesQR;
+          let nextCard = activeShift.totalSalesCard;
+
+          if (existingOrder.paymentMethod === "Efectivo") nextCash = Math.max(0, nextCash - existingOrder.total);
+          else if (existingOrder.paymentMethod === "QR") nextQR = Math.max(0, nextQR - existingOrder.total);
+          else if (existingOrder.paymentMethod === "Tarjeta") nextCard = Math.max(0, nextCard - existingOrder.total);
+
+          if (paymentMethod === "Efectivo") nextCash += total;
+          else if (paymentMethod === "QR") nextQR += total;
+          else if (paymentMethod === "Tarjeta") nextCard += total;
+
+          await tx.cashRegisterShift.update({
+            where: { id: activeShift.id },
+            data: {
+              totalSalesCash: nextCash,
+              totalSalesQR: nextQR,
+              totalSalesCard: nextCard,
+            },
+          });
+        }
+      }
+
+      // Adjust CRMClient totalSpent if total changed
+      if (existingOrder.total !== total && existingOrder.clientPhone) {
+        const phoneCandidates = buildPhoneLookupCandidates(existingOrder.clientPhone);
+        if (phoneCandidates.length > 0) {
+          const client = await tx.cRMClient.findFirst({
+            where: { environment: "farfalina", phone: { in: phoneCandidates } },
+          });
+          if (client) {
+            await tx.cRMClient.update({
+              where: { id: client.id },
+              data: {
+                totalSpent: Math.max(0, client.totalSpent - existingOrder.total + total),
+              },
+            });
+          }
+        }
+      }
+
+      return updatedOrder;
     });
 
     return {
@@ -543,7 +640,28 @@ export async function deleteOrderAction(id: string): Promise<ActionResponse> {
         }
       }
 
-      // 4. Delete OrderDelivery (OrderRecipeItem is cascade-deleted)
+      // 4. Revert CRMClient stats if order belonged to a Farfalina client
+      if (order.clientPhone) {
+        const phoneCandidates = buildPhoneLookupCandidates(order.clientPhone);
+        if (phoneCandidates.length > 0) {
+          const client = await tx.cRMClient.findFirst({
+            where: { environment: "farfalina", phone: { in: phoneCandidates } },
+          });
+          if (client) {
+            const nextCount = Math.max(0, client.purchaseCount - 1);
+            await tx.cRMClient.update({
+              where: { id: client.id },
+              data: {
+                purchaseCount: nextCount,
+                totalSpent: Math.max(0, client.totalSpent - order.total),
+                loyaltyTier: calculateLoyaltyTier(nextCount),
+              },
+            });
+          }
+        }
+      }
+
+      // 5. Delete OrderDelivery (OrderRecipeItem is cascade-deleted)
       await tx.orderDelivery.delete({
         where: { id },
       });

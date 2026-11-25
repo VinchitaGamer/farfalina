@@ -29,7 +29,7 @@ import { getArrangementsAction } from "@/app/actions/arrangements";
 import { createUnifiedTicketAction } from "@/app/actions/logistics";
 import NewArrangementModal from "./new-arrangement-modal";
 import EditArrangementModal from "./edit-arrangement-modal";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getBoliviaDateStr } from "@/lib/utils";
 import { buildDeliveryWhatsAppMessage } from "@/lib/delivery-whatsapp";
 import { toast } from "@/components/ui/toast";
 
@@ -89,7 +89,7 @@ export default function CatalogView() {
   const [address, setAddress] = useState("");
   const [zone, setZone] = useState("");
   const [mapsUrl, setMapsUrl] = useState("");
-  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split("T")[0]);
+  const [deliveryDate, setDeliveryDate] = useState(getBoliviaDateStr());
   const [deliveryTime, setDeliveryTime] = useState("");
   const [dedicationMessage, setDedicationMessage] = useState("");
 
@@ -205,6 +205,7 @@ export default function CatalogView() {
 
   const handleFinalizeCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isProcessing) return;
     if (cart.length === 0) {
       toast.error("Agrega al menos un arreglo al carrito");
       return;
@@ -221,6 +222,28 @@ export default function CatalogView() {
     const finalAddress =
       deliveryType === "pickup" ? "Retiro en Tienda / Local" : address.trim() || "Ver ubicación en Google Maps";
     const finalZone = deliveryType === "pickup" ? "Tienda Central" : zone.trim() || "Sin zona especificada";
+
+    // Aggregate recipe ingredients across cart items when arrangements have recipes
+    const aggregatedRecipes = new Map<string, { rawIngredientId: string; quantityNeeded: number; unitCost: number }>();
+    for (const cartItem of cart) {
+      const catalogItem = items.find((i) => i.id === cartItem.id);
+      if (catalogItem?.recipeItems && catalogItem.recipeItems.length > 0) {
+        for (const r of catalogItem.recipeItems) {
+          const prev = aggregatedRecipes.get(r.rawIngredientId);
+          const needed = r.quantityNeeded * cartItem.qty;
+          const unitCost = r.rawIngredient?.costPerUnit || 0;
+          if (prev) {
+            prev.quantityNeeded += needed;
+          } else {
+            aggregatedRecipes.set(r.rawIngredientId, {
+              rawIngredientId: r.rawIngredientId,
+              quantityNeeded: needed,
+              unitCost,
+            });
+          }
+        }
+      }
+    }
 
     const res = await createUnifiedTicketAction({
       clientName: customerName.trim() || "Cliente Mostrador",
@@ -239,7 +262,7 @@ export default function CatalogView() {
       total: grandTotal,
       paymentMethod,
       dedicationMessage: dedicationMessage.trim(),
-      recipeItems: [],
+      recipeItems: Array.from(aggregatedRecipes.values()),
     });
 
     setIsProcessing(false);
@@ -253,13 +276,17 @@ export default function CatalogView() {
       setCustomerPhone("");
       setRecipientName("");
       setRecipientPhone("");
+      setDeliveryType("pickup");
       setAddress("");
       setZone("");
       setMapsUrl("");
+      setDeliveryDate(getBoliviaDateStr());
       setDeliveryTime("");
       setDeliveryFee("0");
+      setPaymentMethod("Efectivo");
       setDedicationMessage("");
       setCheckoutModalOpen(false);
+      loadCatalog();
     } else {
       toast.error(res.error || "Error al procesar el pedido.");
     }

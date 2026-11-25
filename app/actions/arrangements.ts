@@ -4,13 +4,26 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { ActionResponse } from "@/types/action-response";
+import { getBoliviaDateStr, extractCalendarDateStr } from "@/lib/utils";
+
+const ImageStringSchema = z
+  .string()
+  .min(1, "La URL de imagen es requerida")
+  .refine(
+    (v) =>
+      v.startsWith("http://") ||
+      v.startsWith("https://") ||
+      v.startsWith("/") ||
+      v.startsWith("data:image/"),
+    "Debe ingresar una URL válida de imagen (https://...)"
+  );
 
 const CreateArrangementSchema = z.object({
   name: z.string().min(2, "El nombre del arreglo es requerido"),
   category: z.string().min(1, "La categoría es requerida"),
   price: z.number().positive("El precio debe ser positivo"),
   featured: z.boolean().default(false),
-  image: z.string().url("Debe ser una URL válida de imagen"),
+  image: ImageStringSchema,
   description: z.string().optional().default("").transform((v) => v.trim() || "Arreglo floral Florería Farfalina"),
   recipeItems: z
     .array(
@@ -532,9 +545,20 @@ export async function getIngredientConsumptionAnalyticsAction(
   query?: ConsumptionQueryInput
 ): Promise<ActionResponse<ConsumptionAnalyticsData>> {
   try {
-    const now = new Date();
-    const start = query?.startDate ? new Date(`${query.startDate}T00:00:00.000Z`) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = query?.endDate ? new Date(`${query.endDate}T23:59:59.999Z`) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const todayYmd = getBoliviaDateStr();
+    const [bolYearStr, bolMonthStr] = todayYmd.split("-");
+    const bolYear = Number(bolYearStr);
+    const bolMonth = Number(bolMonthStr);
+    const lastDayOfMonth = new Date(bolYear, bolMonth, 0).getDate();
+    const defaultStartYmd = `${bolYearStr}-${bolMonthStr}-01`;
+    const defaultEndYmd = `${bolYearStr}-${bolMonthStr}-${String(lastDayOfMonth).padStart(2, "0")}`;
+
+    const start = query?.startDate
+      ? new Date(`${query.startDate.split("T")[0]}T00:00:00.000-04:00`)
+      : new Date(`${defaultStartYmd}T00:00:00.000-04:00`);
+    const end = query?.endDate
+      ? new Date(`${query.endDate.split("T")[0]}T23:59:59.999-04:00`)
+      : new Date(`${defaultEndYmd}T23:59:59.999-04:00`);
 
     const ingredients = await prisma.rawIngredient.findMany({
       where: query?.ingredientId ? { id: query.ingredientId } : undefined,
@@ -587,7 +611,7 @@ export async function getIngredientConsumptionAnalyticsAction(
 
     const purchaseLogs: PurchaseHistoryRow[] = rawPurchaseLogs.map((log) => ({
       id: log.id,
-      purchasedAt: log.purchasedAt.toISOString().split("T")[0],
+      purchasedAt: extractCalendarDateStr(log.purchasedAt),
       ingredientName: log.ingredientName,
       ingredientType: log.ingredientType,
       unit: log.unit,
@@ -634,7 +658,7 @@ export async function getIngredientConsumptionAnalyticsAction(
     // Process Orders
     for (const oi of orderItems) {
       if (!oi.rawIngredient) continue;
-      const dateStr = oi.order.createdAt.toISOString().split("T")[0];
+      const dateStr = getBoliviaDateStr(oi.order.createdAt);
       const entry = getEntry(dateStr, oi.rawIngredient);
       entry.orderUsedQty += oi.quantityNeeded;
 
@@ -645,7 +669,7 @@ export async function getIngredientConsumptionAnalyticsAction(
     // Process Mermas
     for (const m of mermas) {
       if (!m.rawIngredient) continue;
-      const dateStr = m.createdAt.toISOString().split("T")[0];
+      const dateStr = getBoliviaDateStr(m.createdAt);
       const entry = getEntry(dateStr, m.rawIngredient);
       entry.mermaLostQty += m.quantityLost;
 
@@ -655,7 +679,7 @@ export async function getIngredientConsumptionAnalyticsAction(
 
     // Process POS items
     for (const t of posTickets) {
-      const dateStr = t.createdAt.toISOString().split("T")[0];
+      const dateStr = getBoliviaDateStr(t.createdAt);
       for (const item of t.ticketItems) {
         const matchingIng = ingredients.find(
           (ing) => item.itemName.toLowerCase().includes(ing.name.toLowerCase()) || ing.name.toLowerCase().includes(item.itemName.toLowerCase())
@@ -706,7 +730,7 @@ export async function getIngredientConsumptionAnalyticsAction(
         packageCount: ing.packageCount ?? null,
         unitsPerPackage: ing.unitsPerPackage ?? null,
         salePrice: ing.salePrice ?? null,
-        entryDate: ing.entryDate ? ing.entryDate.toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+        entryDate: ing.entryDate ? extractCalendarDateStr(ing.entryDate) : todayYmd,
         shelfLifeDays: ing.shelfLifeDays ?? null,
         stockValueBs,
         status,
@@ -891,7 +915,7 @@ const UpdateArrangementSchema = z.object({
   category: z.string().min(1, "La categoría es requerida"),
   price: z.number().positive("El precio debe ser positivo"),
   featured: z.boolean().default(false),
-  image: z.string().url("Debe ser una URL válida de imagen"),
+  image: ImageStringSchema,
   description: z.string().optional().default("").transform((v) => v.trim() || "Arreglo floral Florería Farfalina"),
   recipeItems: z
     .array(
@@ -900,8 +924,7 @@ const UpdateArrangementSchema = z.object({
         quantityNeeded: z.number().int().positive(),
       })
     )
-    .optional()
-    .default([]),
+    .optional(),
 });
 
 export type UpdateArrangementInput = z.input<typeof UpdateArrangementSchema>;
@@ -922,12 +945,12 @@ export async function updateArrangementAction(
     const { id, name, category, price, featured, image, description, recipeItems } = parsed.data;
 
     const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // 1. Delete previous recipe items
-      await tx.arrangementRecipeItem.deleteMany({
-        where: { arrangementId: id },
-      });
+      if (recipeItems !== undefined) {
+        await tx.arrangementRecipeItem.deleteMany({
+          where: { arrangementId: id },
+        });
+      }
 
-      // 2. Update arrangement details and recreate recipe items
       return await tx.arrangement.update({
         where: { id },
         data: {
@@ -937,12 +960,16 @@ export async function updateArrangementAction(
           featured,
           image,
           description,
-          recipeItems: {
-            create: recipeItems.map((item) => ({
-              rawIngredientId: item.rawIngredientId,
-              quantityNeeded: item.quantityNeeded,
-            })),
-          },
+          ...(recipeItems !== undefined
+            ? {
+                recipeItems: {
+                  create: recipeItems.map((item) => ({
+                    rawIngredientId: item.rawIngredientId,
+                    quantityNeeded: item.quantityNeeded,
+                  })),
+                },
+              }
+            : {}),
         },
         include: {
           recipeItems: {

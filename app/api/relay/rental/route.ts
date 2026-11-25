@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
-import { calculateLoyaltyTier, sanitizeClientPhoneAndName } from "@/lib/crm-utils";
+import { calculateLoyaltyTier, sanitizeClientPhoneAndName, buildPhoneLookupCandidates } from "@/lib/crm-utils";
+import { extractCalendarDateStr } from "@/lib/utils";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -81,14 +82,9 @@ export async function POST(req: NextRequest) {
         where: {
           OR: [
             { id: dressId },
-            { name: { contains: dressId } },
+            { name: { contains: dressId, mode: "insensitive" } },
           ],
         },
-      });
-    }
-    if (!dress) {
-      dress = await prisma.dress.findFirst({
-        where: { status: "Disponible" },
       });
     }
 
@@ -105,10 +101,23 @@ export async function POST(req: NextRequest) {
     }
 
     const contractNumber = `ALQ-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 900 + 100)}`;
-    const startDt = new Date(rentalStartDate);
-    const endDt = new Date(rentalEndDate);
-    startDt.setHours(0, 0, 0, 0);
-    endDt.setHours(23, 59, 59, 999);
+    const startYmd = extractCalendarDateStr(rentalStartDate);
+    const endYmd = extractCalendarDateStr(rentalEndDate);
+    if (endYmd < startYmd) {
+      return NextResponse.json(
+        {
+          success: false,
+          data: null,
+          error: "La fecha de devolución no puede ser anterior a la fecha de inicio de renta",
+          code: "INVALID_DATE_RANGE",
+        },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+    const startDt = new Date(`${startYmd}T12:00:00.000Z`);
+    const endDt = new Date(`${endYmd}T12:00:00.000Z`);
+    const overlapStartBound = new Date(`${startYmd}T00:00:00.000Z`);
+    const overlapEndBound = new Date(`${endYmd}T23:59:59.999Z`);
 
     const result = await prisma.$transaction(async (tx) => {
       // 1. Anti-overbooking: check for conflicting active bookings
@@ -118,8 +127,8 @@ export async function POST(req: NextRequest) {
           rentalStatus: { notIn: ["Finalizado"] },
           OR: [
             {
-              rentalStartDate: { lte: endDt },
-              rentalEndDate: { gte: startDt },
+              rentalStartDate: { lte: overlapEndBound },
+              rentalEndDate: { gte: overlapStartBound },
             },
           ],
         },
@@ -163,13 +172,15 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // 4. Update Dress status to 'Reservado'
-      await tx.dress.update({
-        where: { id: dress.id },
-        data: {
-          status: "Reservado",
-        },
-      });
+      // 4. Update Dress status to 'Reservado' only if currently Disponible
+      if (dress.status === "Disponible") {
+        await tx.dress.update({
+          where: { id: dress.id },
+          data: {
+            status: "Reservado",
+          },
+        });
+      }
 
       // 5. Update shift balances if open
       if (currentShift) {
@@ -179,7 +190,8 @@ export async function POST(req: NextRequest) {
             totalSalesCash: paymentMethod === "Efectivo" ? { increment: rentalPrice } : undefined,
             totalSalesQR: paymentMethod === "QR" ? { increment: rentalPrice } : undefined,
             totalSalesCard: paymentMethod === "Tarjeta" ? { increment: rentalPrice } : undefined,
-            totalGuaranteesInCustody: { increment: guaranteeAmount },
+            totalGuaranteesInCustody:
+              paymentMethod === "Efectivo" && guaranteeAmount > 0 ? { increment: guaranteeAmount } : undefined,
           },
         });
       }
@@ -193,12 +205,11 @@ export async function POST(req: NextRequest) {
       const cleanClientName = sanitized.name;
 
       if (cleanPhone && cleanPhone.length >= 6) {
-        const existingClient = await tx.cRMClient.findUnique({
+        const phoneCandidates = buildPhoneLookupCandidates(cleanPhone);
+        const existingClient = await tx.cRMClient.findFirst({
           where: {
-            crmclient_phone_env_unique: {
-              phone: cleanPhone,
-              environment: "carissma",
-            },
+            environment: "carissma",
+            phone: { in: phoneCandidates },
           },
         });
 

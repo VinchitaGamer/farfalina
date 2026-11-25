@@ -17,6 +17,7 @@ import {
   Loader2
 } from "lucide-react";
 import { createContentCampaignAction, updateContentCampaignAction, ContentCampaignInput } from "@/app/actions/crm";
+import { getBoliviaDateStr, extractCalendarDateStr } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 
 export interface ContentCampaignItem {
@@ -71,7 +72,7 @@ export default function ContentCampaignModal({
   const [results, setResults] = useState("");
   const [viewsCount, setViewsCount] = useState<number | string>("");
   const [conversionsCount, setConversionsCount] = useState<number | string>("");
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
+  const [startDate, setStartDate] = useState(getBoliviaDateStr());
   const [durationDays, setDurationDays] = useState<number | string>(1);
   const [responsible, setResponsible] = useState("Farfalina Marketing");
   const [color, setColor] = useState("#E07A5F");
@@ -89,10 +90,7 @@ export default function ContentCampaignModal({
       setResults(campaignToEdit.results || "");
       setViewsCount(campaignToEdit.viewsCount ? campaignToEdit.viewsCount : "");
       setConversionsCount(campaignToEdit.conversionsCount ? campaignToEdit.conversionsCount : "");
-      const rawDate = typeof campaignToEdit.startDate === "string" 
-        ? campaignToEdit.startDate.split("T")[0] 
-        : new Date(campaignToEdit.startDate).toISOString().split("T")[0];
-      setStartDate(rawDate);
+      setStartDate(extractCalendarDateStr(campaignToEdit.startDate));
       setDurationDays(campaignToEdit.durationDays || 1);
       setResponsible(campaignToEdit.responsible);
       setColor(campaignToEdit.color || "#E07A5F");
@@ -107,7 +105,7 @@ export default function ContentCampaignModal({
       setResults("");
       setViewsCount("");
       setConversionsCount("");
-      setStartDate(new Date().toISOString().split("T")[0]);
+      setStartDate(getBoliviaDateStr());
       setDurationDays(1);
       setResponsible("Farfalina Marketing");
       setColor("#E07A5F");

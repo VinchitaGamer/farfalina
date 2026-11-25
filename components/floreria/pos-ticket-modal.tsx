@@ -112,7 +112,7 @@ export default function POSTicketModal({ isOpen, ticket, onClose }: POSTicketMod
             <div className="border-t border-dashed border-warm-300 pt-2 space-y-1 text-xs">
               {ticket.discountAmount ? (
                 <div className="flex justify-between text-emerald-700 font-medium">
-                  <span>Descuento Puntos:</span>
+                  <span>Descuento Aplicado:</span>
                   <span>-{formatCurrency(ticket.discountAmount)}</span>
                 </div>
               ) : null}

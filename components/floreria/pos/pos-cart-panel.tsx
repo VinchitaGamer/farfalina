@@ -129,8 +129,18 @@ export default function PosCartPanel({
     setSaleItems((prev) => prev.filter((i) => i.id !== id));
   };
 
+  const resetCheckoutFields = () => {
+    setSaleItems([]);
+    setCashReceived("");
+    setCustomerName("");
+    setCustomerPhone("");
+    setManualDiscount("");
+    setClientSuggestions([]);
+    setShowSuggestions(false);
+  };
+
   const handleCheckout = async () => {
-    if (saleItems.length === 0) return;
+    if (saleItems.length === 0 || loading) return;
     setLoading(true);
 
     const res = await processPOSSaleAction({
@@ -165,8 +175,7 @@ export default function PosCartPanel({
 
       setActiveTicket(ticketObj);
       setTicketModalOpen(true);
-      setSaleItems([]);
-      setCashReceived("");
+      resetCheckoutFields();
       toast.success("Venta de mostrador procesada exitosamente");
       onSaleComplete();
     } else {
@@ -181,15 +190,14 @@ export default function PosCartPanel({
         handleCheckout();
       } else if (e.key === "F4") {
         e.preventDefault();
-        setSaleItems([]);
-        setCashReceived("");
-        toast.info("Carrito limpiado (Atajo F4)");
+        resetCheckoutFields();
+        toast.info("Carrito y datos de cliente limpiados (Atajo F4)");
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [saleItems, finalTotal, customerName, customerPhone, paymentMethod, manualDiscount]);
+  }, [saleItems, finalTotal, customerName, customerPhone, paymentMethod, manualDiscount, loading]);
 
   return (
     <>
@@ -565,8 +573,7 @@ export default function PosCartPanel({
           <div className="flex gap-2">
             <button
               onClick={() => {
-                setSaleItems([]);
-                setCashReceived("");
+                resetCheckoutFields();
                 toast.info("Carrito limpiado");
               }}
               className="min-h-[44px] px-3.5 py-2.5 bg-warm-100 hover:bg-warm-200 active:bg-warm-300 text-warm-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1 touch-manipulation active:scale-95"

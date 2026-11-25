@@ -26,7 +26,13 @@ import {
   ExternalLink
 } from "lucide-react";
 import { getOrdersAction, updateOrderStatusAction, deleteOrderAction } from "@/app/actions/logistics";
-import { formatCurrency } from "@/lib/utils";
+import {
+  formatCurrency,
+  getBoliviaDateStr,
+  extractCalendarDateStr,
+  formatDateBolivia,
+  diffBoliviaCalendarDays,
+} from "@/lib/utils";
 import { buildDeliveryWhatsAppMessage } from "@/lib/delivery-whatsapp";
 import { toast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -84,13 +90,16 @@ export default function OrdersView() {
   const [editingOrder, setEditingOrder] = useState<OrderDeliveryItem | null>(null);
   const [mobileKanbanStage, setMobileKanbanStage] = useState<"En preparación" | "En camino" | "Entregado">("En preparación");
 
-  // Month navigation for Monthly Calendar
-  const [currentDate, setCurrentDate] = useState(() => new Date());
-  const [selectedMobileDay, setSelectedMobileDay] = useState(() => new Date().getDate());
+  // Month navigation for Monthly Calendar (anchored to Bolivia date)
+  const [currentDate, setCurrentDate] = useState(() => {
+    const [y, m] = getBoliviaDateStr().split("-").map(Number);
+    return new Date(y, m - 1, 1);
+  });
+  const [selectedMobileDay, setSelectedMobileDay] = useState(() => Number(getBoliviaDateStr().split("-")[2]));
 
   useEffect(() => {
     loadOrders();
-  }, [currentDate]);
+  }, []);
 
   const loadOrders = async () => {
     setLoading(true);
@@ -101,13 +110,18 @@ export default function OrdersView() {
     setLoading(false);
   };
 
-  const handleUpdateStatus = async (id: string, newStatus: "En preparación" | "En camino" | "Entregado") => {
+  const handleUpdateStatus = async (
+    id: string,
+    newStatus: "En preparación" | "En camino" | "Entregado"
+  ): Promise<boolean> => {
     const res = await updateOrderStatusAction(id, newStatus);
     if (res.success) {
       toast.success(`Estado de pedido actualizado a "${newStatus}"`);
       loadOrders();
+      return true;
     } else {
       toast.error(res.error || "Error al actualizar estado del pedido");
+      return false;
     }
   };
 
@@ -174,9 +188,9 @@ export default function OrdersView() {
     setSelectedMobileDay(1);
   };
   const goToToday = () => {
-    const now = new Date();
-    setCurrentDate(now);
-    setSelectedMobileDay(now.getDate());
+    const [y, m, d] = getBoliviaDateStr().split("-").map(Number);
+    setCurrentDate(new Date(y, m - 1, 1));
+    setSelectedMobileDay(d);
   };
 
   const monthNames = [
@@ -186,38 +200,41 @@ export default function OrdersView() {
 
   // Timezone-safe Date Matcher for Calendar Cells
   const matchOrderDate = (orderDeliveryDate: string | Date, targetDay: number, targetMonth: number, targetYear: number) => {
-    const d = new Date(orderDeliveryDate);
-    if (isNaN(d.getTime())) return false;
-
-    // Check UTC date first (since server stores at 12:00:00Z)
-    const utcMatch = d.getUTCDate() === targetDay && d.getUTCMonth() === targetMonth && d.getUTCFullYear() === targetYear;
-    if (utcMatch) return true;
-
-    // Fallback to local date match
-    return d.getDate() === targetDay && d.getMonth() === targetMonth && d.getFullYear() === targetYear;
+    const ymd = extractCalendarDateStr(orderDeliveryDate);
+    const targetYmd = `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
+    return ymd === targetYmd;
   };
+
+  const viewedMonthPrefix = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const viewedMonthOrdersCount = orders.filter(
+    (o) => extractCalendarDateStr(o.deliveryDate).slice(0, 7) === viewedMonthPrefix
+  ).length;
 
   const selectedMobileDayOrders = orders.filter((order) =>
     matchOrderDate(order.deliveryDate, selectedMobileDay, month, year)
   );
 
-  // Helper filters for Agenda View
-  const todayRef = new Date();
+  // Helper filters for Agenda View (Bolivia local calendar date)
+  const todayYmd = getBoliviaDateStr();
+  const currentMonthPrefix = todayYmd.slice(0, 7);
+  const todayOrdersCount = orders.filter((o) => extractCalendarDateStr(o.deliveryDate) === todayYmd).length;
+  const weekOrdersCount = orders.filter((o) => {
+    const diff = diffBoliviaCalendarDays(o.deliveryDate, todayYmd);
+    return diff >= 0 && diff <= 7;
+  }).length;
+  const currentMonthOrdersCount = orders.filter(
+    (o) => extractCalendarDateStr(o.deliveryDate).slice(0, 7) === currentMonthPrefix
+  ).length;
 
   const filteredAgendaOrders = orders.filter((o) => {
-    const d = new Date(o.deliveryDate);
-    const day = d.getUTCDate();
-    const m = d.getUTCMonth();
-    const y = d.getUTCFullYear();
-
+    const orderYmd = extractCalendarDateStr(o.deliveryDate);
     if (agendaFilter === "today") {
-      return matchOrderDate(o.deliveryDate, todayRef.getDate(), todayRef.getMonth(), todayRef.getFullYear());
+      return orderYmd === todayYmd;
     } else if (agendaFilter === "week") {
-      const diffTime = d.getTime() - todayRef.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      return diffDays >= -2 && diffDays <= 7;
+      const diff = diffBoliviaCalendarDays(orderYmd, todayYmd);
+      return diff >= 0 && diff <= 7;
     } else {
-      return m === month && y === year;
+      return orderYmd.slice(0, 7) === currentMonthPrefix;
     }
   });
 
@@ -289,7 +306,7 @@ export default function OrdersView() {
                 {monthNames[month]} {year}
               </h3>
               <span className="text-[10px] sm:text-xs text-terracotta-700 font-bold bg-terracotta-50 px-2 sm:px-2.5 py-0.5 rounded-full border border-terracotta-200">
-                {orders.length} Pedidos
+                {viewedMonthOrdersCount} {viewedMonthOrdersCount === 1 ? "Pedido" : "Pedidos"}
               </span>
             </div>
 
@@ -416,7 +433,7 @@ export default function OrdersView() {
                           client: order.clientName,
                           recipient: order.recipientName,
                           message: order.dedicationMessage,
-                          date: order.deliveryTime,
+                          date: `${formatDateBolivia(order.deliveryDate)} - ${order.deliveryTime}`,
                         })}
                         className="min-h-[44px] min-w-[44px] self-center rounded-lg border border-warm-200 bg-warm-50 text-terracotta-700 flex items-center justify-center touch-manipulation active:scale-95"
                         aria-label={`Imprimir dedicatoria de ${order.recipientName}`}
@@ -511,7 +528,7 @@ export default function OrdersView() {
                                 client: ord.clientName,
                                 recipient: ord.recipientName,
                                 message: ord.dedicationMessage,
-                                date: `${ord.deliveryTime}`,
+                                date: `${formatDateBolivia(ord.deliveryDate)} - ${ord.deliveryTime}`,
                               });
                             }}
                             className="min-h-[32px] min-w-[32px] p-1 hover:bg-black/10 rounded-lg flex items-center justify-center transition-colors touch-manipulation"
@@ -819,7 +836,7 @@ export default function OrdersView() {
                   agendaFilter === "today" ? "bg-terracotta-500 text-white shadow-sm" : "text-warm-600 hover:text-warm-900"
                 }`}
               >
-                Hoy ({orders.filter((o) => new Date(o.deliveryDate).getDate() === todayRef.getDate()).length})
+                Hoy ({todayOrdersCount})
               </button>
               <button
                 onClick={() => setAgendaFilter("week")}
@@ -827,7 +844,7 @@ export default function OrdersView() {
                   agendaFilter === "week" ? "bg-terracotta-500 text-white shadow-sm" : "text-warm-600 hover:text-warm-900"
                 }`}
               >
-                Esta Semana
+                Esta Semana ({weekOrdersCount})
               </button>
               <button
                 onClick={() => setAgendaFilter("month")}
@@ -835,7 +852,7 @@ export default function OrdersView() {
                   agendaFilter === "month" ? "bg-terracotta-500 text-white shadow-sm" : "text-warm-600 hover:text-warm-900"
                 }`}
               >
-                Este Mes ({orders.length})
+                Este Mes ({currentMonthOrdersCount})
               </button>
             </div>
           </div>
@@ -903,7 +920,7 @@ export default function OrdersView() {
                       <span className="text-[10px] text-warm-400 block font-sans">
                         {isPickupOrder(ord) ? "Hora Retiro:" : "Hora Entrega:"}
                       </span>
-                      <span className="font-bold text-xs text-warm-900">{new Date(ord.deliveryDate).toLocaleDateString()} a las {ord.deliveryTime}</span>
+                      <span className="font-bold text-xs text-warm-900">{formatDateBolivia(ord.deliveryDate)} a las {ord.deliveryTime}</span>
                       <span className="text-xs font-bold text-terracotta-700 block">{formatCurrency(ord.total)}</span>
                     </div>
 
@@ -924,7 +941,7 @@ export default function OrdersView() {
                             client: ord.clientName,
                             recipient: ord.recipientName,
                             message: ord.dedicationMessage,
-                            date: `${ord.deliveryTime}`,
+                            date: `${formatDateBolivia(ord.deliveryDate)} - ${ord.deliveryTime}`,
                           })
                         }
                         className="min-h-[44px] px-3.5 py-2 bg-white hover:bg-warm-100 text-warm-800 rounded-xl text-xs font-bold border border-warm-200 transition-all flex items-center gap-1.5 active:scale-95 touch-manipulation"
@@ -1054,8 +1071,8 @@ export default function OrdersView() {
                 {selectedOrder.status !== "En preparación" && (
                   <button
                     onClick={async () => {
-                      await handleUpdateStatus(selectedOrder.id, "En preparación");
-                      setSelectedOrder({ ...selectedOrder, status: "En preparación" });
+                      const ok = await handleUpdateStatus(selectedOrder.id, "En preparación");
+                      if (ok) setSelectedOrder({ ...selectedOrder, status: "En preparación" });
                     }}
                     className="px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-xl text-xs font-bold transition-all border border-amber-300 inline-flex items-center gap-1.5"
                   >
@@ -1066,8 +1083,8 @@ export default function OrdersView() {
                 {selectedOrder.status !== "En camino" && (
                   <button
                     onClick={async () => {
-                      await handleUpdateStatus(selectedOrder.id, "En camino");
-                      setSelectedOrder({ ...selectedOrder, status: "En camino" });
+                      const ok = await handleUpdateStatus(selectedOrder.id, "En camino");
+                      if (ok) setSelectedOrder({ ...selectedOrder, status: "En camino" });
                     }}
                     className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-xl text-xs font-bold transition-all border border-blue-300 inline-flex items-center gap-1.5"
                   >
@@ -1078,8 +1095,8 @@ export default function OrdersView() {
                 {selectedOrder.status !== "Entregado" && (
                   <button
                     onClick={async () => {
-                      await handleUpdateStatus(selectedOrder.id, "Entregado");
-                      setSelectedOrder({ ...selectedOrder, status: "Entregado" });
+                      const ok = await handleUpdateStatus(selectedOrder.id, "Entregado");
+                      if (ok) setSelectedOrder({ ...selectedOrder, status: "Entregado" });
                     }}
                     className="px-3 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-xl text-xs font-bold transition-all border border-emerald-300 inline-flex items-center gap-1.5"
                   >
@@ -1149,7 +1166,7 @@ export default function OrdersView() {
                   </span>
                   <p className="font-bold text-terracotta-700 inline-flex items-center gap-1">
                     <Calendar className="h-3.5 w-3.5 text-terracotta-600" />
-                    <span>{new Date(selectedOrder.deliveryDate).toLocaleDateString()} a las {selectedOrder.deliveryTime}</span>
+                    <span>{formatDateBolivia(selectedOrder.deliveryDate)} a las {selectedOrder.deliveryTime}</span>
                   </p>
                 </div>
                 <div>
@@ -1199,7 +1216,7 @@ export default function OrdersView() {
                       client: selectedOrder.clientName,
                       recipient: selectedOrder.recipientName,
                       message: selectedOrder.dedicationMessage,
-                      date: `${new Date(selectedOrder.deliveryDate).toLocaleDateString()} - ${selectedOrder.deliveryTime}`,
+                      date: `${formatDateBolivia(selectedOrder.deliveryDate)} - ${selectedOrder.deliveryTime}`,
                     })
                   }
                   className="px-3 py-1.5 bg-terracotta-500 hover:bg-terracotta-600 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"

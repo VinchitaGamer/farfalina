@@ -9,6 +9,11 @@ import {
   updateRentalStatusAction,
   deleteRentalBookingAction,
 } from "@/app/actions/carissma";
+import {
+  getBoliviaDateStr,
+  extractCalendarDateStr,
+  diffBoliviaCalendarDays,
+} from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import RentalContractModal from "./rental-contract-modal";
@@ -46,6 +51,8 @@ export interface DressItem {
   brand: string;
   size: string;
   status: string;
+  condition?: string;
+  timesUsed?: number;
   color: string;
   baseRentalPrice: number;
   requiredGuarantee: number;
@@ -62,12 +69,15 @@ export default function OrdersView() {
   const [loading, setLoading] = useState(true);
 
   // Calendar State
-  const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
+  const [currentCalendarDate, setCurrentCalendarDate] = useState(() => new Date(`${getBoliviaDateStr()}T12:00:00`));
   const [selectedDayEvents, setSelectedDayEvents] = useState<{ date: string; bookings: BookingItem[] } | null>(null);
 
   // Config
   const [lateFeePerDay, setLateFeePerDay] = useState(50.0);
   const [defaultRentalDays, setDefaultRentalDays] = useState(3);
+  const [decayRate, setDecayRate] = useState(5.0);
+  const [minFloorPercent, setMinFloorPercent] = useState(40.0);
+  const [defaultGuaranteePercent, setDefaultGuaranteePercent] = useState(30.0);
 
   // Modals
   const [isNewBookingModalOpen, setIsNewBookingModalOpen] = useState(false);
@@ -93,9 +103,18 @@ export default function OrdersView() {
       setDresses(dressesRes.data as DressItem[]);
     }
     if (configRes.success && configRes.data) {
-      const c = configRes.data as { lateFeePerDay?: number; defaultRentalDays?: number };
+      const c = configRes.data as {
+        lateFeePerDay?: number;
+        defaultRentalDays?: number;
+        decayRatePerUsage?: number;
+        minPriceFloorPercent?: number;
+        defaultGuaranteePercent?: number;
+      };
       setLateFeePerDay(c.lateFeePerDay ?? 50.0);
       setDefaultRentalDays(c.defaultRentalDays ?? 3);
+      setDecayRate(c.decayRatePerUsage ?? 5.0);
+      setMinFloorPercent(c.minPriceFloorPercent ?? 40.0);
+      setDefaultGuaranteePercent(c.defaultGuaranteePercent ?? 30.0);
     }
     setLoading(false);
   };
@@ -142,29 +161,29 @@ export default function OrdersView() {
     );
   });
 
-  // Agenda Filter
-  const now = new Date();
-  const todayStr = now.toISOString().split("T")[0];
-  const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-  const nextMonth = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  // Agenda Filter (Bolivia UTC-4 calendar days)
+  const todayStr = getBoliviaDateStr();
 
   const agendaBookings = filteredBookings.filter((b) => {
     if (agendaFilter === "all") return true;
-    const returnDateStr = new Date(b.rentalEndDate).toISOString().split("T")[0];
-    const returnDate = new Date(b.rentalEndDate);
+    const returnDateStr = extractCalendarDateStr(b.rentalEndDate);
+    const diffDays = diffBoliviaCalendarDays(returnDateStr, todayStr);
 
     if (agendaFilter === "today") return returnDateStr === todayStr;
-    if (agendaFilter === "week") return returnDate >= now && returnDate <= nextWeek;
-    if (agendaFilter === "month") return returnDate >= now && returnDate <= nextMonth;
+    if (agendaFilter === "week") return diffDays >= 0 && diffDays <= 7;
+    if (agendaFilter === "month") return diffDays >= 0 && diffDays <= 30;
     return true;
   });
 
   const getBookingsForDay = (day: number) => {
-    const dayDateStr = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), day).toISOString().split("T")[0];
+    const y = currentCalendarDate.getFullYear();
+    const m = String(currentCalendarDate.getMonth() + 1).padStart(2, "0");
+    const d = String(day).padStart(2, "0");
+    const dayDateStr = `${y}-${m}-${d}`;
     return bookings.filter((b) => {
-      const startStr = new Date(b.rentalStartDate).toISOString().split("T")[0];
-      const endStr = new Date(b.rentalEndDate).toISOString().split("T")[0];
-      return startStr === dayDateStr || endStr === dayDateStr;
+      const startStr = extractCalendarDateStr(b.rentalStartDate);
+      const endStr = extractCalendarDateStr(b.rentalEndDate);
+      return dayDateStr >= startStr && dayDateStr <= endStr;
     });
   };
 
@@ -288,6 +307,9 @@ export default function OrdersView() {
         onClose={() => setIsNewBookingModalOpen(false)}
         dresses={dresses}
         defaultRentalDays={defaultRentalDays}
+        decayRate={decayRate}
+        minFloorPercent={minFloorPercent}
+        defaultGuaranteePercent={defaultGuaranteePercent}
         onSuccess={(booking) => {
           setIsNewBookingModalOpen(false);
           setSelectedContractBooking(booking);
@@ -308,6 +330,7 @@ export default function OrdersView() {
       <RentalContractModal
         isOpen={!!selectedContractBooking}
         booking={selectedContractBooking}
+        bookings={bookings}
         onClose={() => setSelectedContractBooking(null)}
         onDelete={handleDeleteBooking}
       />

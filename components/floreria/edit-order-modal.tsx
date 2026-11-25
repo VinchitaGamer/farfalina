@@ -17,7 +17,7 @@ import {
   Check,
 } from "lucide-react";
 import { updateOrderAction, UpdateOrderInput } from "@/app/actions/logistics";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, extractCalendarDateStr } from "@/lib/utils";
 import { buildDeliveryWhatsAppMessage } from "@/lib/delivery-whatsapp";
 import { toast } from "@/components/ui/toast";
 
@@ -82,11 +82,7 @@ export default function EditOrderModal({ isOpen, onClose, order, onSaved }: Edit
       setZone(isPickup ? "" : order.zone || "");
       setMapsUrl(order.mapsUrl || "");
 
-      const d = new Date(order.deliveryDate);
-      const yyyy = d.getUTCFullYear();
-      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-      const dd = String(d.getUTCDate()).padStart(2, "0");
-      setDeliveryDate(`${yyyy}-${mm}-${dd}`);
+      setDeliveryDate(extractCalendarDateStr(order.deliveryDate));
 
       setDeliveryTime(order.deliveryTime || "");
       setArrangementName(order.arrangementName || "");
@@ -154,6 +150,11 @@ export default function EditOrderModal({ isOpen, onClose, order, onSaved }: Edit
       toast.error("La fecha de entrega es requerida.");
       return;
     }
+    if (deliveryType === "delivery" && !address.trim() && !mapsUrl.trim()) {
+      toast.error("Para envío a domicilio, ingresa la dirección exacta o el link de Google Maps.");
+      return;
+    }
+    if (saving) return;
 
     setSaving(true);
     const payload: UpdateOrderInput = {
@@ -193,7 +194,7 @@ export default function EditOrderModal({ isOpen, onClose, order, onSaved }: Edit
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl border border-warm-200 shadow-2xl max-w-2xl w-full max-h-[92dvh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-warm-200 flex items-center justify-between bg-gradient-to-r from-terracotta-50/50 to-warm-50">
@@ -357,7 +358,7 @@ export default function EditOrderModal({ isOpen, onClose, order, onSaved }: Edit
               <div>
                 <label className="font-bold text-warm-700 block mb-1">URL de Google Maps:</label>
                 <input
-                  type="url"
+                  type="text"
                   value={mapsUrl}
                   onChange={(e) => setMapsUrl(e.target.value)}
                   placeholder="https://maps.app.goo.gl/..."

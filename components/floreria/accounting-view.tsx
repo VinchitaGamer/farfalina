@@ -32,7 +32,7 @@ import {
   deletePOSTicketAction,
 } from "@/app/actions/finances";
 import { getOrdersAction, deleteOrderAction } from "@/app/actions/logistics";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getBoliviaDateStr, formatDateBolivia } from "@/lib/utils";
 import { downloadExcelCsv } from "@/lib/export-csv";
 import { buildDeliveryWhatsAppMessage } from "@/lib/delivery-whatsapp";
 import { toast } from "@/components/ui/toast";
@@ -164,7 +164,8 @@ export default function AccountingView() {
   >("Luz/Servicios");
   const [amount, setAmount] = useState<number | string>(150);
   const [description, setDescription] = useState("");
-  const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split("T")[0]);
+  const [expenseDate, setExpenseDate] = useState(getBoliviaDateStr());
+  const [deductFromOpenShift, setDeductFromOpenShift] = useState(false);
   const [submittingExpense, setSubmittingExpense] = useState(false);
 
   useEffect(() => {
@@ -287,7 +288,7 @@ export default function AccountingView() {
   };
 
   const handleExportExcel = () => {
-    const todayStamp = new Date().toISOString().split("T")[0];
+    const todayStamp = getBoliviaDateStr();
 
     if (activeTab === "summary") {
       downloadExcelCsv(
@@ -295,7 +296,7 @@ export default function AccountingView() {
         ["Fecha", "Categoría", "Descripción", "Monto (Bs)"],
         [
           ...expenses.map((e) => [
-            new Date(e.expenseDate).toLocaleDateString(),
+            formatDateBolivia(e.expenseDate),
             e.category,
             e.description,
             e.amount,
@@ -332,7 +333,7 @@ export default function AccountingView() {
         ],
         orders.map((ord) => [
           ord.orderNumber,
-          new Date(ord.deliveryDate).toLocaleDateString(),
+          formatDateBolivia(ord.deliveryDate),
           ord.deliveryTime,
           ord.clientName,
           ord.clientPhone || "",
@@ -410,6 +411,7 @@ export default function AccountingView() {
       amount: numAmount,
       description,
       expenseDate,
+      deductFromOpenShift,
     });
     setSubmittingExpense(false);
 
@@ -418,6 +420,7 @@ export default function AccountingView() {
       setNewExpenseModalOpen(false);
       setDescription("");
       setAmount(150);
+      setDeductFromOpenShift(false);
       loadData();
     } else {
       toast.error(res.error || "Error al registrar egreso");
@@ -607,7 +610,7 @@ export default function AccountingView() {
                     {expenses.map((e) => (
                       <tr key={e.id} className="hover:bg-warm-50/60 transition-colors">
                         <td className="p-3 font-mono text-warm-600">
-                          {new Date(e.expenseDate).toLocaleDateString()}
+                          {formatDateBolivia(e.expenseDate)}
                         </td>
                         <td className="p-3">
                           <span className="px-2 py-0.5 bg-rose-50 text-rose-700 rounded font-semibold text-[11px] border border-rose-200">
@@ -638,7 +641,7 @@ export default function AccountingView() {
                   <article key={e.id} className="rounded-xl border border-warm-200 bg-warm-50/60 p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-xs font-mono text-warm-500">{new Date(e.expenseDate).toLocaleDateString()}</p>
+                        <p className="text-xs font-mono text-warm-500">{formatDateBolivia(e.expenseDate)}</p>
                         <p className="mt-1 font-semibold text-sm text-warm-900 break-words">{e.description}</p>
                       </div>
                       <div className="shrink-0 text-right">
@@ -653,7 +656,7 @@ export default function AccountingView() {
                       <button
                         type="button"
                         onClick={() => handleDeleteExpense(e)}
-                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 text-xs font-bold inline-flex items-center gap-1"
+                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 text-xs font-bold inline-flex items-center gap-1 print:hidden"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         <span>Eliminar</span>
@@ -707,7 +710,7 @@ export default function AccountingView() {
       {activeTab === "orders" && (
         <div className="space-y-5">
           {/* Orders Filter and Search Bar */}
-          <div className="bg-white p-4 sm:p-5 rounded-2xl border border-warm-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3 flex-wrap">
+          <div className="bg-white p-4 sm:p-5 rounded-2xl border border-warm-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3 flex-wrap print:hidden">
             <div className="relative flex-1 min-w-[240px] w-full">
               <Search className="h-4 w-4 text-warm-400 absolute left-3 top-3" />
               <input
@@ -1330,21 +1333,33 @@ export default function AccountingView() {
                       <td className="p-3 font-mono text-warm-600">{formatCurrency(s.openingBalance)}</td>
                       <td className="p-3 font-mono text-emerald-700">{formatCurrency(s.totalSalesCash)}</td>
                       <td className="p-3 font-mono text-blue-700">{formatCurrency((s.totalSalesQR || 0) + (s.totalSalesCard || 0))}</td>
-                      <td className="p-3 font-mono font-bold text-warm-900">{formatCurrency(s.closingBalance || 0)}</td>
-                      <td className="p-3">
-                        <span
-                          className={`px-2 py-0.5 rounded font-bold text-[10px] ${
-                            Math.abs(s.discrepancy || 0) < 0.01
-                              ? "bg-emerald-100 text-emerald-800"
-                              : (s.discrepancy || 0) > 0
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-rose-100 text-rose-800"
-                          }`}
-                        >
-                          {formatCurrency(s.discrepancy || 0)}
-                        </span>
+                      <td className="p-3 font-mono font-bold text-warm-900">
+                        {s.status === "Open" ? (
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-sans">
+                            EN CURSO
+                          </span>
+                        ) : (
+                          formatCurrency(s.closingBalance || 0)
+                        )}
                       </td>
-                      <td className="p-3 text-right">
+                      <td className="p-3">
+                        {s.status === "Open" ? (
+                          <span className="text-[10px] text-warm-500">Pendiente cierre</span>
+                        ) : (
+                          <span
+                            className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                              Math.abs(s.discrepancy || 0) < 0.01
+                                ? "bg-emerald-100 text-emerald-800"
+                                : (s.discrepancy || 0) > 0
+                                ? "bg-blue-100 text-blue-800"
+                                : "bg-rose-100 text-rose-800"
+                            }`}
+                          >
+                            {formatCurrency(s.discrepancy || 0)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right print:hidden">
                         <button
                           onClick={() => {
                             setActiveShiftReport(s);
@@ -1536,6 +1551,18 @@ export default function AccountingView() {
                   required
                 />
               </div>
+
+              <label className="flex items-start gap-2.5 p-3 bg-warm-50 rounded-xl border border-warm-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={deductFromOpenShift}
+                  onChange={(e) => setDeductFromOpenShift(e.target.checked)}
+                  className="rounded border-warm-300 h-4 w-4 mt-0.5"
+                />
+                <span className="text-[11px] text-warm-700 leading-snug">
+                  <strong>Pagado con efectivo del turno de caja abierto</strong> (descuenta del arqueo físico de gaveta)
+                </span>
+              </label>
 
               <div className="pt-3 border-t border-warm-200 flex justify-end gap-2">
                 <button

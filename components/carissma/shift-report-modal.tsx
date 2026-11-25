@@ -12,7 +12,9 @@ import { formatCurrency } from "@/lib/utils";
 export interface CarissmaShiftReportData {
   id: string;
   shiftDate: string;
-  openedAt: string | Date;
+  status?: string;
+  openedAt?: string | Date;
+  createdAt?: string | Date;
   closedAt?: string | Date | null;
   cashierName: string;
   openingBalance: number;
@@ -126,11 +128,11 @@ export default function ShiftReportModal({ isOpen, report, onClose }: ShiftRepor
               </div>
               <div className="text-right space-y-0.5">
                 <span className="px-2.5 py-0.5 bg-warm-100 text-warm-900 text-xs font-bold rounded-lg border border-warm-300 inline-block font-mono">
-                  TURNO CONCLUIDO
+                  {report.status === "Open" ? "TURNO EN CURSO" : "TURNO CONCLUIDO"}
                 </span>
                 <p className="text-[10px] font-bold text-warm-800">Cajera: <strong>{report.cashierName}</strong></p>
                 <p className="text-[9px] text-warm-500 font-mono">
-                  Cierre: {report.closedAt ? new Date(report.closedAt).toLocaleString() : new Date().toLocaleString()}
+                  Cierre: {report.closedAt ? new Date(report.closedAt).toLocaleString("es-BO") : new Date().toLocaleString("es-BO")}
                 </p>
               </div>
             </div>

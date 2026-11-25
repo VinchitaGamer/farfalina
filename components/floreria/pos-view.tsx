@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useAppStore } from "@/store/app-store";
 import { Truck, Receipt, Tag, Plus, ShieldCheck, X, Package, Calculator, Save } from "lucide-react";
 import { toast } from "@/components/ui/toast";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getBoliviaDateStr, extractCalendarDateStr, formatDateBolivia } from "@/lib/utils";
 
 import { getShiftStatusAction, getArchivedShiftsAction } from "@/app/actions/pos";
 import {
@@ -26,7 +26,13 @@ import StockAnalyticsModal from "./stock-analytics-modal";
 import type { CashRegisterShift } from "@prisma/client";
 
 export default function PosView() {
-  const { posActiveTab: posTab, setPosActiveTab: setPosTab, posStockSearch, setPosStockSearch } = useAppStore();
+  const {
+    posActiveTab: posTab,
+    setPosActiveTab: setPosTab,
+    posStockSearch,
+    setPosStockSearch,
+    toggleRegister,
+  } = useAppStore();
 
   const [loadingData, setLoadingData] = useState(true);
   const [arrangementsList, setArrangementsList] = useState<any[]>([]);
@@ -54,7 +60,7 @@ export default function PosView() {
   const [ingType, setIngType] = useState<string>("Flor");
   const [ingUnit, setIngUnit] = useState("tallos");
   const [ingWarningThreshold, setIngWarningThreshold] = useState<string>("20");
-  const [ingEntryDate, setIngEntryDate] = useState(new Date().toISOString().split("T")[0]);
+  const [ingEntryDate, setIngEntryDate] = useState(getBoliviaDateStr());
   const [ingShelfLifeDays, setIngShelfLifeDays] = useState<string>("7");
   const [ingIsNonPerishable, setIngIsNonPerishable] = useState<boolean>(false);
 
@@ -97,9 +103,12 @@ export default function PosView() {
     if (stockRes.success && Array.isArray(stockRes.data)) setStockList(stockRes.data as InventoryStock[]);
     if (arrRes.success && Array.isArray(arrRes.data)) setArrangementsList(arrRes.data);
     if (shiftRes.success && shiftRes.data) {
-      setActiveShift(shiftRes.data as CashRegisterShift);
+      const shiftObj = shiftRes.data as CashRegisterShift;
+      setActiveShift(shiftObj);
+      toggleRegister(true, shiftObj.openingBalance);
     } else {
       setActiveShift(null);
+      toggleRegister(false, 0);
     }
     await loadArchivedShifts();
     setLoadingData(false);
@@ -111,6 +120,29 @@ export default function PosView() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const savedCats = window.localStorage.getItem("farfalina_custom_ing_categories");
+        if (savedCats) {
+          const parsedCats = JSON.parse(savedCats);
+          if (Array.isArray(parsedCats)) {
+            setCustomIngCategories(parsedCats.filter((x): x is string => typeof x === "string" && x.trim().length > 0));
+          }
+        }
+      } catch {
+        // Ignorar errores de localStorage
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab");
+      const searchParam = params.get("search");
+      if (tabParam === "stock" || tabParam === "register" || tabParam === "terminal") {
+        setPosTab(tabParam);
+      }
+      if (searchParam !== null) {
+        setPosStockSearch(searchParam);
+      }
+    }
     loadData();
   }, []);
 
@@ -121,7 +153,7 @@ export default function PosView() {
     setIngType("Flor");
     setIngUnit("tallos");
     setIngWarningThreshold("20");
-    setIngEntryDate(new Date().toISOString().split("T")[0]);
+    setIngEntryDate(getBoliviaDateStr());
     setIngShelfLifeDays("7");
     setIngIsNonPerishable(false);
     setPkgCost("");
@@ -142,8 +174,7 @@ export default function PosView() {
     setIngType(stock.type || "Flor");
     setIngUnit(stock.unit || "uds");
     setIngWarningThreshold(String(stock.warningThreshold ?? 15));
-    const dt = stock.entryDate ? new Date(stock.entryDate) : new Date();
-    setIngEntryDate(Number.isNaN(dt.getTime()) ? new Date().toISOString().split("T")[0] : dt.toISOString().split("T")[0]);
+    setIngEntryDate(extractCalendarDateStr(stock.entryDate));
     const nonPerish = stock.shelfLifeDays === null || stock.shelfLifeDays === 0 || stock.shelfLifeDays === undefined;
     setIngIsNonPerishable(nonPerish);
     setIngShelfLifeDays(nonPerish ? "" : String(stock.shelfLifeDays));
@@ -196,10 +227,9 @@ export default function PosView() {
         unit: ingUnit.trim() || "uds",
         warningThreshold: Math.max(0, parseInt(ingWarningThreshold, 10) || 0),
         costPerUnit: computedUnitCost,
-        packageCost: pricingMode === "packages" && numPkgCost > 0 ? numPkgCost : editingIngredient.packageCost ?? null,
-        packageCount: pricingMode === "packages" && numPkgCount > 0 ? numPkgCount : editingIngredient.packageCount ?? null,
-        unitsPerPackage:
-          pricingMode === "packages" && numUnitsPerPkg > 0 ? numUnitsPerPkg : editingIngredient.unitsPerPackage ?? null,
+        packageCost: pricingMode === "packages" && numPkgCost > 0 ? numPkgCost : null,
+        packageCount: pricingMode === "packages" && numPkgCount > 0 ? numPkgCount : null,
+        unitsPerPackage: pricingMode === "packages" && numUnitsPerPkg > 0 ? numUnitsPerPkg : null,
         salePrice: Number(ingSalePrice) > 0 ? Number(ingSalePrice) : null,
         entryDate: ingEntryDate,
         shelfLifeDays: ingIsNonPerishable ? null : Number(ingShelfLifeDays) || 7,
@@ -254,6 +284,11 @@ export default function PosView() {
     if (!allIngredientCategories.includes(trimmed)) {
       const updated = [...customIngCategories, trimmed];
       setCustomIngCategories(updated);
+      try {
+        window.localStorage.setItem("farfalina_custom_ing_categories", JSON.stringify(updated));
+      } catch {
+        // Ignorar errores de localStorage
+      }
     }
     setIngType(trimmed);
     setNewCategoryName("");
@@ -364,6 +399,7 @@ export default function PosView() {
         isOpen={mermaModalOpen}
         onClose={() => setMermaModalOpen(false)}
         selectedStockId={selectedStockId}
+        stockItem={stockList.find((s) => s.id === selectedStockId) || null}
         onSuccess={loadData}
       />
 
@@ -741,7 +777,7 @@ export default function PosView() {
       )}
 
       {posOrdersModalOpen && (
-        <div className="fixed inset-0 z-50 bg-warm-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-warm-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl border border-warm-200 shadow-2xl max-w-2xl w-full p-5 sm:p-6 space-y-4 max-h-[90dvh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-warm-200">
               <h3 className="font-bold text-base text-warm-900">Historial de Pedidos & Entregas en Caja</h3>
@@ -764,6 +800,12 @@ export default function PosView() {
                     <div className="flex justify-between text-[11px] text-warm-600">
                       <span>{ord.arrangementName}</span>
                       <span className="font-semibold">{ord.status}</span>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-warm-500 pt-0.5 border-t border-warm-200/60">
+                      <span>
+                        Entrega: <strong>{formatDateBolivia(ord.deliveryDate)}</strong> · {ord.deliveryTime || "Por coordinar"}
+                      </span>
+                      <span>{ord.zone || "Tienda Central"} · {ord.paymentMethod}</span>
                     </div>
                   </div>
                 ))

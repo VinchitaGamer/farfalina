@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Filter, Shield, Printer, Trash2 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateBolivia, extractCalendarDateStr, getBoliviaDateStr } from "@/lib/utils";
 import { BookingItem } from "../orders-view";
 
 type AgendaFilterMode = "today" | "week" | "month" | "all";
@@ -24,6 +24,8 @@ export default function OrdersAgendaTable({
   setSelectedContractBooking,
   onDeleteBooking,
 }: OrdersAgendaTableProps) {
+  const todayBolivia = getBoliviaDateStr();
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col items-start justify-between gap-3 rounded-2xl border border-warm-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:p-4">
@@ -65,7 +67,7 @@ export default function OrdersAgendaTable({
           </div>
         ) : (
           agendaBookings.map((b) => {
-            const isOverdue = b.rentalStatus === "Entregado" && new Date(b.rentalEndDate) < new Date();
+            const isOverdue = b.rentalStatus === "Entregado" && extractCalendarDateStr(b.rentalEndDate) < todayBolivia;
             return (
               <article key={b.id} className="space-y-3 rounded-2xl border border-warm-200 bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
@@ -89,8 +91,8 @@ export default function OrdersAgendaTable({
                   <div className="min-w-0">
                     <p className="text-warm-500">Fechas de renta</p>
                     <p className="mt-1 break-words font-medium text-warm-800">
-                      {new Date(b.rentalStartDate).toLocaleDateString()} –{" "}
-                      <strong className={isOverdue ? "text-rose-700" : ""}>{new Date(b.rentalEndDate).toLocaleDateString()}</strong>
+                      {formatDateBolivia(b.rentalStartDate)} –{" "}
+                      <strong className={isOverdue ? "text-rose-700" : ""}>{formatDateBolivia(b.rentalEndDate)}</strong>
                     </p>
                   </div>
                   <div>
@@ -166,7 +168,7 @@ export default function OrdersAgendaTable({
                   </td>
                 </tr>
               ) : agendaBookings.map((b) => {
-                const isOverdue = b.rentalStatus === "Entregado" && new Date(b.rentalEndDate) < new Date();
+                const isOverdue = b.rentalStatus === "Entregado" && extractCalendarDateStr(b.rentalEndDate) < todayBolivia;
                 return (
                   <tr key={b.id} className="hover:bg-warm-50/60 transition-colors">
                     <td className="p-3 font-mono font-bold text-amberGold-800">
@@ -184,9 +186,9 @@ export default function OrdersAgendaTable({
                       <p className="text-[10px] text-warm-500">Talla {b.dressSize} • {b.dressColor}</p>
                     </td>
                     <td className="p-3 text-[11px]">
-                      {new Date(b.rentalStartDate).toLocaleDateString()} &rarr;{" "}
+                      {formatDateBolivia(b.rentalStartDate)} &rarr;{" "}
                       <strong className={isOverdue ? "text-rose-700" : ""}>
-                        {new Date(b.rentalEndDate).toLocaleDateString()}
+                        {formatDateBolivia(b.rentalEndDate)}
                       </strong>
                     </td>
                     <td className="p-3 font-bold">{formatCurrency(b.rentalPrice)}</td>

@@ -217,7 +217,7 @@ export default function Sidebar() {
           {/* Backdrop */}
           <div
             onClick={() => setMobileMenuOpen(false)}
-            className="fixed inset-0 bg-warm-950/50 backdrop-blur-xs transition-opacity"
+            className="fixed inset-0 bg-warm-950/50 backdrop-blur-sm transition-opacity"
             aria-hidden="true"
           />
 

@@ -2,7 +2,7 @@
 
 import React from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, X, Printer, Trash2 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateBolivia, getBoliviaDateStr } from "@/lib/utils";
 import { BookingItem } from "../orders-view";
 
 interface OrdersCalendarViewProps {
@@ -32,7 +32,8 @@ export default function OrdersCalendarView({
     "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
     "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
   ];
-  const now = new Date();
+  const todayBolivia = getBoliviaDateStr();
+  const [todayYear, todayMonth, todayDay] = todayBolivia.split("-").map(Number);
 
   const handlePrevMonth = () => {
     setCurrentCalendarDate(new Date(year, month - 1, 1));
@@ -63,7 +64,10 @@ export default function OrdersCalendarView({
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button
-              onClick={() => setCurrentCalendarDate(new Date())}
+              onClick={() => {
+                setCurrentCalendarDate(new Date(`${todayBolivia}T12:00:00`));
+                setSelectedDayEvents(null);
+              }}
               className="px-2.5 py-1 bg-warm-100 hover:bg-warm-200 text-warm-800 rounded-lg text-xs font-bold"
             >
               Hoy
@@ -94,7 +98,7 @@ export default function OrdersCalendarView({
             const day = i + 1;
             const dayBookings = getBookingsForDay(day);
             const isToday =
-              day === now.getDate() && month === now.getMonth() && year === now.getFullYear();
+              day === todayDay && month + 1 === todayMonth && year === todayYear;
 
             return (
               <div
@@ -153,7 +157,7 @@ export default function OrdersCalendarView({
                   <p className="font-bold text-warm-900">{b.clientName}</p>
                   <p className="text-[10px] text-warm-500">{b.dressName} (Talla {b.dressSize})</p>
                   <div className="flex justify-between text-[10px] text-warm-600 border-t border-warm-100 pt-1">
-                    <span>Retorno: {new Date(b.rentalEndDate).toLocaleDateString()}</span>
+                    <span>Retorno: {formatDateBolivia(b.rentalEndDate)}</span>
                     <span className="font-bold text-emerald-700">{formatCurrency(b.rentalPrice)}</span>
                   </div>
                   <div className="flex items-center gap-1.5 pt-1.5 border-t border-warm-200">

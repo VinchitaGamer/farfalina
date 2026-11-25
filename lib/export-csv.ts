@@ -14,10 +14,22 @@ export type CsvRow = z.infer<typeof CsvRowSchema>;
 function escapeCsvCell(value: CsvCell): string {
   if (value === null || value === undefined) return "";
   const raw = String(value);
-  if (raw.includes('"') || raw.includes(",") || raw.includes("\n") || raw.includes("\r") || raw.includes(";")) {
-    return `"${raw.replace(/"/g, '""')}"`;
+  const safeRaw =
+    typeof value === "string" &&
+    /^[=+\-@]/.test(raw.trimStart()) &&
+    !/^-\d+(\.\d+)?$/.test(raw.trim())
+      ? `'${raw}`
+      : raw;
+  if (
+    safeRaw.includes('"') ||
+    safeRaw.includes(",") ||
+    safeRaw.includes("\n") ||
+    safeRaw.includes("\r") ||
+    safeRaw.includes(";")
+  ) {
+    return `"${safeRaw.replace(/"/g, '""')}"`;
   }
-  return raw;
+  return safeRaw;
 }
 
 /**

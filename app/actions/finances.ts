@@ -3,6 +3,8 @@
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { ActionResponse } from "@/types/action-response";
+import { calculateLoyaltyTier, buildPhoneLookupCandidates } from "@/lib/crm-utils";
+import { getBoliviaDateStr, parseBoliviaNoonUtc } from "@/lib/utils";
 
 const CreateFinancialExpenseSchema = z.object({
   category: z.enum([
@@ -15,7 +17,11 @@ const CreateFinancialExpenseSchema = z.object({
   ]),
   amount: z.number().positive("El monto debe ser un valor positivo"),
   description: z.string().min(3, "La descripción debe tener al menos 3 caracteres"),
-  expenseDate: z.string().optional().transform((val) => (val ? new Date(`${val.split("T")[0]}T12:00:00.000Z`) : new Date())),
+  expenseDate: z
+    .string()
+    .optional()
+    .transform((val) => parseBoliviaNoonUtc(val || getBoliviaDateStr())),
+  deductFromOpenShift: z.boolean().optional().default(false),
 });
 
 export type CreateFinancialExpenseInput = z.input<typeof CreateFinancialExpenseSchema>;
@@ -33,8 +39,34 @@ export async function createFinancialExpenseAction(
       };
     }
 
-    const expense = await prisma.financialExpense.create({
-      data: parsed.data,
+    const { category, amount, description, expenseDate, deductFromOpenShift } = parsed.data;
+
+    const expense = await prisma.$transaction(async (tx) => {
+      let finalDesc = description.trim();
+      if (deductFromOpenShift) {
+        const activeShift = await tx.cashRegisterShift.findFirst({
+          where: { status: "Open" },
+          orderBy: { createdAt: "desc" },
+        });
+        if (activeShift) {
+          await tx.cashRegisterShift.update({
+            where: { id: activeShift.id },
+            data: { totalExpenses: { increment: amount } },
+          });
+          if (!finalDesc.includes("[Efectivo Caja]")) {
+            finalDesc = `${finalDesc} [Efectivo Caja]`;
+          }
+        }
+      }
+
+      return tx.financialExpense.create({
+        data: {
+          category,
+          amount,
+          description: finalDesc,
+          expenseDate,
+        },
+      });
     });
 
     return {
@@ -56,7 +88,27 @@ export async function deleteFinancialExpenseAction(id: string): Promise<ActionRe
     if (!id) {
       return { success: false, error: "ID de egreso requerido", code: "VALIDATION_ERROR" };
     }
-    await prisma.financialExpense.delete({ where: { id } });
+    const existing = await prisma.financialExpense.findUnique({ where: { id } });
+    if (!existing) {
+      return { success: false, error: "Egreso no encontrado", code: "NOT_FOUND" };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (existing.description.includes("[Efectivo Caja]")) {
+        const activeShift = await tx.cashRegisterShift.findFirst({
+          where: { status: "Open" },
+          orderBy: { createdAt: "desc" },
+        });
+        if (activeShift && existing.createdAt >= activeShift.createdAt) {
+          await tx.cashRegisterShift.update({
+            where: { id: activeShift.id },
+            data: { totalExpenses: Math.max(0, activeShift.totalExpenses - existing.amount) },
+          });
+        }
+      }
+      await tx.financialExpense.delete({ where: { id } });
+    });
+
     return { success: true, data: { id } };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Error al eliminar egreso";
@@ -96,6 +148,25 @@ export async function deletePOSTicketAction(id: string): Promise<ActionResponse>
           await tx.cashRegisterShift.update({
             where: { id: activeShift.id },
             data: { totalSalesCard: Math.max(0, activeShift.totalSalesCard - ticket.totalAmount) },
+          });
+        }
+      }
+
+      // Revert CRMClient stats if customerPhone belonged to a registered Farfalina client
+      const phoneCandidates = buildPhoneLookupCandidates(ticket.customerPhone);
+      if (phoneCandidates.length > 0) {
+        const client = await tx.cRMClient.findFirst({
+          where: { environment: "farfalina", phone: { in: phoneCandidates } },
+        });
+        if (client) {
+          const nextCount = Math.max(0, client.purchaseCount - 1);
+          await tx.cRMClient.update({
+            where: { id: client.id },
+            data: {
+              purchaseCount: nextCount,
+              totalSpent: Math.max(0, client.totalSpent - ticket.totalAmount),
+              loyaltyTier: calculateLoyaltyTier(nextCount),
+            },
           });
         }
       }
@@ -167,9 +238,16 @@ export async function getFinancialMetricsAction(): Promise<ActionResponse> {
     const totalExpenses = totalExpensesCategory + totalMermaCost;
     const netProfit = totalIncome - totalExpenses;
 
-    // 4. Cash Register Shifts History
-    const shifts = await prisma.cashRegisterShift.findMany({
+    // 4. Cash Register Shifts History (with shift tickets attached for report printing)
+    const rawShifts = await prisma.cashRegisterShift.findMany({
       orderBy: { createdAt: "desc" },
+    });
+    const shifts = rawShifts.map((s) => {
+      const endBound = s.closedAt ? new Date(s.closedAt) : new Date();
+      const shiftTickets = posTickets.filter(
+        (t) => t.createdAt >= s.createdAt && t.createdAt <= endBound
+      );
+      return { ...s, tickets: shiftTickets };
     });
 
     // 5. Top Selling Arrangements & Products Analysis (ZERO double-counting)

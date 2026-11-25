@@ -2,16 +2,25 @@
 
 import React, { useState, useEffect } from "react";
 import { X, Check } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getBoliviaDateStr } from "@/lib/utils";
 import { createRentalBookingAction } from "@/app/actions/carissma";
 import { toast } from "@/components/ui/toast";
 import { DressItem, BookingItem } from "../orders-view";
+
+function addDaysBolivia(ymd: string, days: number): string {
+  const base = new Date(`${ymd}T12:00:00.000Z`);
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
+}
 
 interface OrdersNewBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   dresses: DressItem[];
   defaultRentalDays: number;
+  decayRate?: number;
+  minFloorPercent?: number;
+  defaultGuaranteePercent?: number;
   onSuccess: (booking: BookingItem) => void;
 }
 
@@ -20,37 +29,53 @@ export default function OrdersNewBookingModal({
   onClose,
   dresses,
   defaultRentalDays,
+  decayRate = 5.0,
+  minFloorPercent = 40.0,
+  defaultGuaranteePercent = 30.0,
   onSuccess,
 }: OrdersNewBookingModalProps) {
   const [selectedDressId, setSelectedDressId] = useState("");
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [endDate, setEndDate] = useState(
-    new Date(Date.now() + defaultRentalDays * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
-  );
+  const [startDate, setStartDate] = useState(() => getBoliviaDateStr());
+  const [endDate, setEndDate] = useState(() => addDaysBolivia(getBoliviaDateStr(), defaultRentalDays));
   const [rentalPrice, setRentalPrice] = useState<number | string>(450);
   const [guaranteeAmount, setGuaranteeAmount] = useState<number | string>(500);
   const [paymentMethod, setPaymentMethod] = useState<"Efectivo" | "QR" | "Tarjeta">("Efectivo");
   const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const computeDressPricing = (d: DressItem) => {
+    const base = d.baseRentalPrice || 450;
+    const maxDiscount = (100 - minFloorPercent) / 100;
+    const depreciation = Math.min(maxDiscount, ((d.timesUsed || 0) * decayRate) / 100);
+    const suggestedPrice = Math.round(Math.max(base * (minFloorPercent / 100), base * (1 - depreciation)));
+    const suggestedGuarantee = d.requiredGuarantee ?? Math.round((base * defaultGuaranteePercent) / 100);
+    return { suggestedPrice, suggestedGuarantee };
+  };
 
   useEffect(() => {
     if (isOpen) {
-      const available = dresses.filter((d) => d.status === "Disponible");
-      if (available.length > 0) {
-        const d = available[0];
-        setSelectedDressId(d.id);
-        setRentalPrice(d.baseRentalPrice || 450);
-        setGuaranteeAmount(d.requiredGuarantee || 500);
+      const selectable = dresses.filter((d) => d.condition !== "Requiere Mantenimiento");
+      const preferred = selectable.find((d) => d.status === "Disponible") || selectable[0];
+      if (preferred) {
+        setSelectedDressId(preferred.id);
+        const { suggestedPrice, suggestedGuarantee } = computeDressPricing(preferred);
+        setRentalPrice(suggestedPrice);
+        setGuaranteeAmount(suggestedGuarantee);
+      } else {
+        setSelectedDressId("");
       }
+      const todayYmd = getBoliviaDateStr();
       setClientName("");
       setClientPhone("");
-      setStartDate(new Date().toISOString().split("T")[0]);
-      setEndDate(new Date(Date.now() + defaultRentalDays * 24 * 60 * 60 * 1000).toISOString().split("T")[0]);
+      setStartDate(todayYmd);
+      setEndDate(addDaysBolivia(todayYmd, defaultRentalDays));
       setPaymentMethod("Efectivo");
       setNotes("");
+      setSubmitting(false);
     }
-  }, [isOpen, dresses, defaultRentalDays]);
+  }, [isOpen, dresses, defaultRentalDays, decayRate, minFloorPercent, defaultGuaranteePercent]);
 
   if (!isOpen) return null;
 
@@ -58,18 +83,21 @@ export default function OrdersNewBookingModal({
     setSelectedDressId(dressId);
     const d = dresses.find((x) => x.id === dressId);
     if (d) {
-      setRentalPrice(d.baseRentalPrice || 450);
-      setGuaranteeAmount(d.requiredGuarantee || 500);
+      const { suggestedPrice, suggestedGuarantee } = computeDressPricing(d);
+      setRentalPrice(suggestedPrice);
+      setGuaranteeAmount(suggestedGuarantee);
     }
   };
 
   const handleCreateBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     if (!clientName.trim() || !selectedDressId) {
       toast.error("Completa los datos de la clienta y selecciona una prenda");
       return;
     }
 
+    setSubmitting(true);
     const res = await createRentalBookingAction({
       clientName: clientName.trim(),
       clientPhone: clientPhone.trim() || undefined,
@@ -81,6 +109,7 @@ export default function OrdersNewBookingModal({
       paymentMethod,
       notes: notes.trim() || undefined,
     });
+    setSubmitting(false);
 
     if (res.success) {
       toast.success("¡Reserva y Contrato de Alquiler generado exitosamente!");
@@ -113,12 +142,20 @@ export default function OrdersNewBookingModal({
               className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-base sm:text-xs text-warm-900 font-medium"
               required
             >
-              <option value="">-- Seleccionar vestido disponible --</option>
-              {dresses.map((d) => (
-                <option key={d.id} value={d.id} disabled={d.status !== "Disponible"}>
-                  {d.name} ({d.brand} - Talla {d.size}) — {formatCurrency(d.baseRentalPrice || 450)} {d.status !== "Disponible" ? `[${d.status}]` : "✓ Disponible"}
-                </option>
-              ))}
+              <option value="">-- Seleccionar vestido --</option>
+              {dresses.map((d) => {
+                const isMaintenance = d.condition === "Requiere Mantenimiento";
+                const statusTag = isMaintenance
+                  ? "[En Mantenimiento]"
+                  : d.status !== "Disponible"
+                  ? `[${d.status} — Reserva futura]`
+                  : "✓ Disponible";
+                return (
+                  <option key={d.id} value={d.id} disabled={isMaintenance}>
+                    {d.name} ({d.brand} - Talla {d.size}) — {formatCurrency(d.baseRentalPrice || 450)} {statusTag}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
@@ -226,10 +263,11 @@ export default function OrdersNewBookingModal({
             </button>
             <button
               type="submit"
-              className="min-h-[44px] px-5 py-2 bg-amberGold-600 hover:bg-amberGold-700 text-white rounded-xl font-bold shadow-warm flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation"
+              disabled={submitting}
+              className="min-h-[44px] px-5 py-2 bg-amberGold-600 hover:bg-amberGold-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-warm flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation"
             >
               <Check className="h-4 w-4" />
-              <span>Confirmar Reserva</span>
+              <span>{submitting ? "Generando..." : "Confirmar Reserva"}</span>
             </button>
           </div>
         </form>

@@ -38,3 +38,35 @@ export function sanitizeClientPhoneAndName(
 
   return { cleanPhone, cleanName, phone: cleanPhone, name: cleanName };
 }
+
+/**
+ * Normaliza un número telefónico para enlaces https://wa.me/, anteponiendo el código de país 591
+ * cuando se trata de un celular boliviano de 8 dígitos (inicia en 6 o 7).
+ */
+export function formatWhatsAppPhoneBolivia(rawPhone?: string | null): string {
+  let digits = (rawPhone || "").replace(/@lid|@c\.us/g, "").replace(/\D/g, "").trim();
+  if (!digits) return "";
+  if (digits.startsWith("00")) {
+    digits = digits.slice(2);
+  }
+  if (/^[67]\d{7}$/.test(digits)) {
+    return `591${digits}`;
+  }
+  return digits;
+}
+
+/**
+ * Genera variantes equivalentes de búsqueda telefónica (con y sin prefijo 591) para evitar
+ * duplicar clientes en CRM cuando unas ventas registran 8 dígitos y otras +591.
+ */
+export function buildPhoneLookupCandidates(rawPhone?: string | null): string[] {
+  const digits = (rawPhone || "").replace(/@lid|@c\.us/g, "").replace(/\D/g, "").trim();
+  if (!digits) return [];
+  const candidates = new Set<string>([digits]);
+  if (/^[67]\d{7}$/.test(digits)) {
+    candidates.add(`591${digits}`);
+  } else if (/^591[67]\d{7}$/.test(digits)) {
+    candidates.add(digits.slice(3));
+  }
+  return Array.from(candidates);
+}

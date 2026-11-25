@@ -11,6 +11,7 @@ import {
   Search,
   Trash2,
   Phone,
+  Edit2,
   X
 } from "lucide-react";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -22,7 +23,8 @@ import {
   createCRMSpecialEventAction,
   deleteCRMSpecialEventAction,
 } from "@/app/actions/crm";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateBolivia, getBoliviaDateStr } from "@/lib/utils";
+import { formatWhatsAppPhoneBolivia } from "@/lib/crm-utils";
 import { toast } from "@/components/ui/toast";
 
 interface CRMClientItem {
@@ -61,7 +63,11 @@ export default function CrmView() {
   // Modals
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
   const [isNewEventModalOpen, setIsNewEventModalOpen] = useState(false);
-  const [selectedClientForEvent, setSelectedClientForEvent] = useState<CRMClientItem | null>(null);
+  const [editingClient, setEditingClient] = useState<CRMClientItem | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editColorPref, setEditColorPref] = useState("");
+  const [editNotes, setEditNotes] = useState("");
 
   // New Client Form
   const [newName, setNewName] = useState("");
@@ -73,7 +79,7 @@ export default function CrmView() {
   const [eventClientId, setEventClientId] = useState("");
   const [eventTitle, setEventTitle] = useState("");
   const [eventType, setEventType] = useState("Quinceañera");
-  const [eventDate, setEventDate] = useState(new Date().toISOString().split("T")[0]);
+  const [eventDate, setEventDate] = useState(() => getBoliviaDateStr());
   const [eventDesc, setEventDesc] = useState("");
 
   useEffect(() => {
@@ -89,6 +95,39 @@ export default function CrmView() {
       setEvents(d.events ?? []);
     }
     setLoading(false);
+  };
+
+  const handleOpenEditClient = (client: CRMClientItem) => {
+    setEditingClient(client);
+    setEditName(client.name);
+    setEditPhone(client.phone);
+    setEditColorPref(client.favoriteFlower || "");
+    setEditNotes(client.notes || "");
+  };
+
+  const handleUpdateClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingClient) return;
+    if (!editName.trim() || !editPhone.trim()) {
+      toast.error("Nombre y teléfono requeridos");
+      return;
+    }
+
+    const res = await updateCRMClientAction({
+      id: editingClient.id,
+      name: editName.trim(),
+      phone: editPhone.trim(),
+      favoriteFlower: editColorPref.trim() || undefined,
+      notes: editNotes.trim() || undefined,
+    });
+
+    if (res.success) {
+      toast.success("Datos y medidas de clienta actualizados");
+      setEditingClient(null);
+      loadCRMData();
+    } else {
+      toast.error(res.error || "Error al actualizar clienta");
+    }
   };
 
   const handleCreateClient = async (e: React.FormEvent) => {
@@ -147,20 +186,38 @@ export default function CrmView() {
   };
 
   const handleDeleteClient = async (id: string, name: string) => {
-    const ok = await confirm(`¿Eliminar clienta ${name}?`);
+    const ok = await confirm({
+      title: "¿Eliminar clienta del CRM?",
+      description: `¿Estás seguro de eliminar a "${name}" del directorio de Carissma?`,
+      confirmText: "Sí, eliminar clienta",
+      cancelText: "Cancelar",
+      variant: "destructive",
+    });
     if (!ok) return;
     const res = await deleteCRMClientAction(id);
     if (res.success) {
       toast.success("Clienta eliminada");
       loadCRMData();
+    } else {
+      toast.error(res.error || "Error al eliminar clienta");
     }
   };
 
-  const handleDeleteEvent = async (id: string) => {
+  const handleDeleteEvent = async (id: string, title: string) => {
+    const ok = await confirm({
+      title: "¿Eliminar evento especial?",
+      description: `¿Deseas eliminar el evento "${title}" del calendario de clientas?`,
+      confirmText: "Sí, eliminar evento",
+      cancelText: "Cancelar",
+      variant: "destructive",
+    });
+    if (!ok) return;
     const res = await deleteCRMSpecialEventAction(id);
     if (res.success) {
       toast.success("Evento eliminado");
       loadCRMData();
+    } else {
+      toast.error(res.error || "Error al eliminar evento");
     }
   };
 
@@ -274,114 +331,141 @@ export default function CrmView() {
             </div>
           </div>
 
-          <div className="grid min-w-0 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredClients.map((client) => (
-              <div key={client.id} className="min-w-0 bg-white rounded-2xl border border-warm-200 shadow-sm p-4 space-y-3 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="px-2 py-0.5 bg-amberGold-100 text-amberGold-800 text-[10px] font-bold rounded-md">
-                      {client.loyaltyTier || "Bronce"}
-                    </span>
-                    <span className="text-[10px] text-warm-400">
-                      {client.purchaseCount} alquiler(es)
-                    </span>
+          {filteredClients.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-warm-200 p-8 text-center text-xs text-warm-500">
+              No se encontraron clientas registradas con los filtros actuales.
+            </div>
+          ) : (
+            <div className="grid min-w-0 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredClients.map((client) => (
+                <div key={client.id} className="min-w-0 bg-white rounded-2xl border border-warm-200 shadow-sm p-4 space-y-3 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 bg-amberGold-100 text-amberGold-800 text-[10px] font-bold rounded-md">
+                        {client.loyaltyTier || "Bronce"}
+                      </span>
+                      <span className="text-[10px] text-warm-400">
+                        {client.purchaseCount} alquiler(es)
+                      </span>
+                    </div>
+
+                    <h3 className="break-words font-bold text-sm text-warm-900 mt-2">{client.name}</h3>
+                    <p className="break-all text-[11px] text-warm-500 flex items-center gap-1 mt-0.5">
+                      <Phone className="h-3 w-3 shrink-0" /> {client.phone}
+                    </p>
+
+                    <div className="min-w-0 p-2.5 bg-warm-50 rounded-xl text-xs space-y-1 mt-3 border border-warm-100">
+                      <div className="flex min-w-0 flex-col gap-0.5 min-[420px]:flex-row min-[420px]:justify-between">
+                        <span className="text-warm-500">🎀 Estilo Preferido:</span>
+                        <strong className="min-w-0 break-words text-warm-800">{client.favoriteFlower || "Sin especificar"}</strong>
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-0.5 min-[420px]:flex-row min-[420px]:justify-between">
+                        <span className="text-warm-500">Inversión Acumulada:</span>
+                        <strong className="break-words text-emerald-700">{formatCurrency(client.totalSpent)}</strong>
+                      </div>
+                      {client.notes && (
+                        <p className="break-words text-[10px] text-warm-600 pt-1 border-t border-warm-200">
+                          {client.notes}
+                        </p>
+                      )}
+                    </div>
                   </div>
 
-                  <h3 className="break-words font-bold text-sm text-warm-900 mt-2">{client.name}</h3>
-                  <p className="break-all text-[11px] text-warm-500 flex items-center gap-1 mt-0.5">
-                    <Phone className="h-3 w-3 shrink-0" /> {client.phone}
-                  </p>
-
-                  <div className="min-w-0 p-2.5 bg-warm-50 rounded-xl text-xs space-y-1 mt-3 border border-warm-100">
-                    <div className="flex min-w-0 flex-col gap-0.5 min-[420px]:flex-row min-[420px]:justify-between">
-                      <span className="text-warm-500">🎀 Estilo Preferido:</span>
-                      <strong className="min-w-0 break-words text-warm-800">{client.favoriteFlower || "Sin especificar"}</strong>
+                  <div className="pt-2 border-t border-warm-100 flex items-center justify-between gap-2">
+                    <a
+                      href={`https://wa.me/${formatWhatsAppPhoneBolivia(client.phone)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="min-h-11 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm"
+                    >
+                      <Send className="h-3 w-3" />
+                      <span>WhatsApp</span>
+                    </a>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditClient(client)}
+                        aria-label={`Editar clienta ${client.name}`}
+                        title="Editar medidas y datos"
+                        className="h-11 w-11 text-warm-500 hover:text-amberGold-700 hover:bg-amberGold-50 rounded-lg inline-flex items-center justify-center transition-colors"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteClient(client.id, client.name)}
+                        aria-label={`Eliminar clienta ${client.name}`}
+                        className="h-11 w-11 text-warm-400 hover:text-rose-600 rounded-lg inline-flex items-center justify-center transition-colors"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                    <div className="flex min-w-0 flex-col gap-0.5 min-[420px]:flex-row min-[420px]:justify-between">
-                      <span className="text-warm-500">Inversión Acumulada:</span>
-                      <strong className="break-words text-emerald-700">{formatCurrency(client.totalSpent)}</strong>
-                    </div>
-                    {client.notes && (
-                      <p className="break-words text-[10px] text-warm-600 pt-1 border-t border-warm-200">
-                        {client.notes}
-                      </p>
-                    )}
                   </div>
                 </div>
-
-                <div className="pt-2 border-t border-warm-100 flex items-center justify-between">
-                  <a
-                    href={`https://wa.me/${client.phone.replace(/\D/g, "")}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="min-h-11 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm"
-                  >
-                    <Send className="h-3 w-3" />
-                    <span>WhatsApp</span>
-                  </a>
-                  <button
-                    onClick={() => handleDeleteClient(client.id, client.name)}
-                    aria-label={`Eliminar clienta ${client.name}`}
-                    className="h-11 w-11 text-warm-400 hover:text-rose-600 rounded-lg inline-flex items-center justify-center"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* TAB 2: EVENTS CALENDAR */}
       {crmTab === "calendar" && (
         <div className="space-y-4">
-          <div className="grid min-w-0 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {events.map((event) => (
-              <div key={event.id} className="min-w-0 bg-white rounded-2xl border border-warm-200 shadow-sm p-4 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="px-2 py-0.5 bg-purple-100 text-purple-800 text-[10px] font-bold rounded-md">
-                    {event.eventType}
-                  </span>
-                  <span className="text-[11px] font-bold text-warm-600">
-                    {new Date(event.eventDate).toLocaleDateString()}
-                  </span>
-                </div>
+          {events.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-warm-200 p-8 text-center text-xs text-warm-500">
+              No hay eventos especiales agendados todavía. Usa &ldquo;Agendar Evento&rdquo; para programar recordatorios de gala o pruebas de vestido.
+            </div>
+          ) : (
+            <div className="grid min-w-0 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {events.map((event) => (
+                <div key={event.id} className="min-w-0 bg-white rounded-2xl border border-warm-200 shadow-sm p-4 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="px-2 py-0.5 bg-purple-100 text-purple-800 text-[10px] font-bold rounded-md">
+                      {event.eventType}
+                    </span>
+                    <span className="text-[11px] font-bold text-warm-600">
+                      {formatDateBolivia(event.eventDate)}
+                    </span>
+                  </div>
 
-                <div className="min-w-0 space-y-1">
-                  <h4 className="break-words font-bold text-sm text-warm-900">{event.title}</h4>
-                  <p className="break-words text-xs text-warm-600 font-medium">Clienta: {event.client?.name || "No asignada"}</p>
-                </div>
+                  <div className="min-w-0 space-y-1">
+                    <h4 className="break-words font-bold text-sm text-warm-900">{event.title}</h4>
+                    <p className="break-words text-xs text-warm-600 font-medium">Clienta: {event.client?.name || "No asignada"}</p>
+                  </div>
 
-                {event.description && (
-                  <p className="break-words text-[11px] text-warm-500 bg-warm-50 p-2 rounded-lg">
-                    {event.description}
-                  </p>
-                )}
-
-                <div className="pt-2 border-t border-warm-100 flex items-center justify-between">
-                  {event.client?.phone && (
-                    <a
-                      href={`https://wa.me/${event.client.phone.replace(/\D/g, "")}?text=${encodeURIComponent("¡Hola " + event.client.name + "! En Carissma tenemos los vestidos perfectos listos para tu evento: " + event.title + ". ¿Te gustaría agendar una prueba de vestuario?")}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="min-h-11 px-3 py-2 bg-amberGold-600 hover:bg-amberGold-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-warm"
-                    >
-                      <Sparkles className="h-3 w-3" />
-                      <span>Ofrecer Vestido</span>
-                    </a>
+                  {event.description && (
+                    <p className="break-words text-[11px] text-warm-500 bg-warm-50 p-2 rounded-lg">
+                      {event.description}
+                    </p>
                   )}
-                  <button
-                    onClick={() => handleDeleteEvent(event.id)}
-                    aria-label={`Eliminar evento ${event.title}`}
-                    className="h-11 w-11 shrink-0 text-warm-400 hover:text-rose-600 rounded-lg inline-flex items-center justify-center"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+
+                  <div className="pt-2 border-t border-warm-100 flex items-center justify-between">
+                    {event.client?.phone ? (
+                      <a
+                        href={`https://wa.me/${formatWhatsAppPhoneBolivia(event.client.phone)}?text=${encodeURIComponent("¡Hola " + event.client.name + "! En Carissma tenemos los vestidos perfectos listos para tu evento: " + event.title + ". ¿Te gustaría agendar una prueba de vestuario?")}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="min-h-11 px-3 py-2 bg-amberGold-600 hover:bg-amberGold-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-warm"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        <span>Ofrecer Vestido</span>
+                      </a>
+                    ) : (
+                      <span />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteEvent(event.id, event.title)}
+                      aria-label={`Eliminar evento ${event.title}`}
+                      className="h-11 w-11 shrink-0 text-warm-400 hover:text-rose-600 rounded-lg inline-flex items-center justify-center"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -585,6 +669,77 @@ export default function CrmView() {
                   className="min-h-11 px-5 py-2 bg-amberGold-600 text-white rounded-xl font-bold shadow-warm"
                 >
                   Agendar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Client / Measurements Modal */}
+      {editingClient && (
+        <div className="fixed inset-0 z-50 bg-warm-900/60 backdrop-blur-sm flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]" role="dialog" aria-modal="true">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto bg-white rounded-3xl border border-warm-200 shadow-2xl p-4 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-warm-200">
+              <h3 className="font-bold text-base text-warm-900">Editar Clienta & Medidas</h3>
+              <button onClick={() => setEditingClient(null)} aria-label="Cerrar modal" className="h-11 w-11 inline-flex shrink-0 items-center justify-center">
+                <X className="h-5 w-5 text-warm-400" />
+              </button>
+            </div>
+            <form onSubmit={handleUpdateClient} className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-warm-800">Nombre Completo *</label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="min-h-11 w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-base md:text-sm text-warm-900"
+                  required
+                />
+              </div>
+              <div>
+                <label className="font-bold text-warm-800">Teléfono / WhatsApp *</label>
+                <input
+                  type="tel"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  className="min-h-11 w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-base md:text-sm text-warm-900"
+                  required
+                />
+              </div>
+              <div>
+                <label className="font-bold text-warm-800">Talla / Estilo Preferido</label>
+                <input
+                  type="text"
+                  value={editColorPref}
+                  onChange={(e) => setEditColorPref(e.target.value)}
+                  placeholder="Ej: Talla M, Gala largo, Colores pasteles"
+                  className="min-h-11 w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-base md:text-sm text-warm-900"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-warm-800">Medidas & Notas (Busto, Cintura, Cadera)</label>
+                <textarea
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="ej: Talla M, Busto: 90, Cintura: 70, Cadera: 98..."
+                  rows={3}
+                  className="min-h-11 w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-base md:text-sm text-warm-900"
+                />
+              </div>
+              <div className="pt-3 flex justify-end gap-2 border-t border-warm-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingClient(null)}
+                  className="min-h-11 px-4 py-2 bg-warm-100 rounded-xl font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="min-h-11 px-5 py-2 bg-amberGold-600 text-white rounded-xl font-bold shadow-warm"
+                >
+                  Guardar Cambios
                 </button>
               </div>
             </form>

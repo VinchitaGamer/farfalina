@@ -1,8 +1,10 @@
 "use client";
 
-import React from "react";
-import { useRouter } from "next/navigation";
+import React, { useEffect } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
+import { getShiftStatusAction } from "@/app/actions/pos";
+import { getCarissmaCurrentShiftAction } from "@/app/actions/carissma";
 import {
   Flower2,
   Shirt,
@@ -14,7 +16,47 @@ import { cn } from "@/lib/utils";
 
 export default function TopHeader() {
   const router = useRouter();
-  const { activeSystem, setActiveSystem, registerOpen, mobileMenuOpen, setMobileMenuOpen } = useAppStore();
+  const pathname = usePathname();
+  const {
+    activeSystem,
+    setActiveSystem,
+    registerOpen,
+    toggleRegister,
+    carissmaRegisterOpen,
+    setCarissmaRegisterOpen,
+    activeNotificationsCount,
+    mobileMenuOpen,
+    setMobileMenuOpen,
+    navigateToCashRegister,
+  } = useAppStore();
+
+  useEffect(() => {
+    let cancelled = false;
+    const syncRegisterBadges = async () => {
+      try {
+        if (activeSystem === "floreria") {
+          const res = await getShiftStatusAction();
+          if (!cancelled && res.success) {
+            const shiftData = res.data as { openingBalance?: number } | null;
+            toggleRegister(Boolean(shiftData), shiftData?.openingBalance ?? 0);
+          }
+        } else {
+          const res = await getCarissmaCurrentShiftAction();
+          if (!cancelled && res.success) {
+            setCarissmaRegisterOpen(Boolean(res.data));
+          }
+        }
+      } catch {
+        // Silencioso en cabecera
+      }
+    };
+    syncRegisterBadges();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSystem, pathname, toggleRegister, setCarissmaRegisterOpen]);
+
+  const isCurrentRegisterOpen = activeSystem === "floreria" ? registerOpen : carissmaRegisterOpen;
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-warm-200 bg-white/95 backdrop-blur-md px-3 sm:px-6 lg:px-8 py-2.5 transition-colors duration-200 print:hidden">
@@ -96,16 +138,35 @@ export default function TopHeader() {
             title="Notificaciones y alertas del sistema"
           >
             <Bell className="h-5 w-5" />
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-terracotta-500 animate-pulse" />
+            {activeNotificationsCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-terracotta-600 text-white text-[10px] font-bold flex items-center justify-center shadow-sm">
+                {activeNotificationsCount > 9 ? "9+" : activeNotificationsCount}
+              </span>
+            )}
           </button>
 
           {/* POS Status Badge (desktop/tablet) */}
-          {activeSystem === "floreria" && (
-            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-medium">
-              <Store className="h-3.5 w-3.5 text-emerald-600" />
-              <span>Caja {registerOpen ? "Abierta" : "Cerrada"}</span>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              if (activeSystem === "floreria") {
+                navigateToCashRegister();
+                router.push("/floreria/pos?tab=register");
+              } else {
+                router.push("/carissma/pos");
+              }
+            }}
+            title="Ir al estado de caja"
+            className={cn(
+              "hidden md:flex items-center gap-1.5 px-2.5 py-1 border rounded-lg text-[11px] font-medium transition-colors",
+              isCurrentRegisterOpen
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                : "bg-warm-100 text-warm-600 border-warm-200 hover:bg-warm-200/70"
+            )}
+          >
+            <Store className={cn("h-3.5 w-3.5", isCurrentRegisterOpen ? "text-emerald-600" : "text-warm-500")} />
+            <span>Caja {isCurrentRegisterOpen ? "Abierta" : "Cerrada"}</span>
+          </button>
 
           {/* User Profile avatar */}
           <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-warm-200">

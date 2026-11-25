@@ -3,7 +3,8 @@
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { ActionResponse } from "@/types/action-response";
-import { calculateLoyaltyTier, sanitizeClientPhoneAndName } from "@/lib/crm-utils";
+import { calculateLoyaltyTier, sanitizeClientPhoneAndName, buildPhoneLookupCandidates } from "@/lib/crm-utils";
+import { getBoliviaDateStr, extractCalendarDateStr } from "@/lib/utils";
 
 // ==========================================
 // 1. ZOD SCHEMAS & TYPES
@@ -77,7 +78,9 @@ const ReturnRentalDressSchema = z.object({
   bookingId: z.string().min(1, "ID de reserva requerido"),
   penaltyFee: z.number().min(0).default(0),
   guaranteeStatus: z.enum(["Devuelta", "Retenida Parcial", "Retenida Total"]).default("Devuelta"),
-  nextDressStatus: z.enum(["En Lavandería", "Disponible", "Requiere Mantenimiento"]).default("En Lavandería"),
+  nextDressStatus: z
+    .enum(["Devuelto / Revisión", "En Lavandería", "Disponible", "Requiere Mantenimiento"])
+    .default("En Lavandería"),
   notes: z.string().optional(),
 });
 
@@ -210,6 +213,16 @@ export async function deleteDressAction(id: string): Promise<ActionResponse> {
   try {
     if (!id) {
       return { success: false, error: "ID de vestido no provisto", code: "VALIDATION_ERROR" };
+    }
+
+    const bookingsCount = await prisma.rentalBooking.count({ where: { dressId: id } });
+    if (bookingsCount > 0) {
+      return {
+        success: false,
+        error:
+          "No se puede eliminar un vestido que tiene contratos o reservas registradas en el historial contable. Puedes marcarlo en Mantenimiento o Lavandería.",
+        code: "DRESS_HAS_BOOKINGS",
+      };
     }
 
     await prisma.dress.delete({ where: { id } });
@@ -380,22 +393,44 @@ export async function createRentalBookingAction(rawInput: CreateRentalBookingInp
       return { success: false, error: "El vestido seleccionado no existe", code: "NOT_FOUND" };
     }
 
-    const contractNumber = `ALQ-${Date.now().toString().slice(-6)}`;
-    const startDt = new Date(rentalStartDate);
-    const endDt = new Date(rentalEndDate);
-    startDt.setHours(0, 0, 0, 0);
-    endDt.setHours(23, 59, 59, 999);
+    const contractNumber = `ALQ-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 900 + 100)}`;
+    const startYmd = extractCalendarDateStr(rentalStartDate);
+    const endYmd = extractCalendarDateStr(rentalEndDate);
+    if (endYmd < startYmd) {
+      return {
+        success: false,
+        error: "La fecha de devolución no puede ser anterior a la fecha de inicio de renta.",
+        code: "INVALID_DATE_RANGE",
+      };
+    }
+
+    const todayYmd = getBoliviaDateStr();
+    if (startYmd <= todayYmd && (dress.status === "En Lavandería" || dress.condition === "Requiere Mantenimiento")) {
+      return {
+        success: false,
+        error: `La prenda "${dress.name}" se encuentra actualmente en ${
+          dress.condition === "Requiere Mantenimiento" ? "Mantenimiento" : "Lavandería"
+        } para entrega inmediata.`,
+        code: "DRESS_UNAVAILABLE_TODAY",
+      };
+    }
+
+    // Store at 12:00:00.000Z (08:00 AM Bolivia) so date never shifts -1 day in UTC-4
+    const startDt = new Date(`${startYmd}T12:00:00.000Z`);
+    const endDt = new Date(`${endYmd}T12:00:00.000Z`);
+    const overlapStartBound = new Date(`${startYmd}T00:00:00.000Z`);
+    const overlapEndBound = new Date(`${endYmd}T23:59:59.999Z`);
 
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Anti-overbooking: check if there's an active booking that overlaps with the requested dates
+      // 1. Anti-overbooking: check if there's an active booking that overlaps with the requested calendar dates
       const overlappingBooking = await tx.rentalBooking.findFirst({
         where: {
           dressId,
           rentalStatus: { notIn: ["Finalizado"] },
           OR: [
             {
-              rentalStartDate: { lte: endDt },
-              rentalEndDate: { gte: startDt },
+              rentalStartDate: { lte: overlapEndBound },
+              rentalEndDate: { gte: overlapStartBound },
             },
           ],
         },
@@ -439,13 +474,15 @@ export async function createRentalBookingAction(rawInput: CreateRentalBookingInp
         },
       });
 
-      // 4. Update Dress status to 'Reservado'
-      await tx.dress.update({
-        where: { id: dressId },
-        data: { status: "Reservado" },
-      });
+      // 4. Update Dress status to 'Reservado' only if currently 'Disponible'
+      if (dress.status === "Disponible") {
+        await tx.dress.update({
+          where: { id: dressId },
+          data: { status: "Reservado" },
+        });
+      }
 
-      // 4. Update Shift sales and guarantee in custody if open
+      // 5. Update Shift sales and PHYSICAL cash guarantee in custody if open
       if (currentShift) {
         await tx.carissmaCashShift.update({
           where: { id: currentShift.id },
@@ -453,23 +490,23 @@ export async function createRentalBookingAction(rawInput: CreateRentalBookingInp
             totalSalesCash: paymentMethod === "Efectivo" ? { increment: rentalPrice } : undefined,
             totalSalesQR: paymentMethod === "QR" ? { increment: rentalPrice } : undefined,
             totalSalesCard: paymentMethod === "Tarjeta" ? { increment: rentalPrice } : undefined,
-            totalGuaranteesInCustody: { increment: guaranteeAmount },
+            totalGuaranteesInCustody:
+              paymentMethod === "Efectivo" && guaranteeAmount > 0 ? { increment: guaranteeAmount } : undefined,
           },
         });
       }
 
-      // 5. Sync or create CRM Client record strictly isolated to Carissma environment
+      // 6. Sync or create CRM Client record strictly isolated to Carissma environment
       const sanitized = sanitizeClientPhoneAndName(clientPhone || "", clientName);
       const cleanPhone = sanitized.phone;
       const cleanClientName = sanitized.name;
 
       if (cleanPhone && cleanPhone.length >= 6) {
-        const existingClient = await tx.cRMClient.findUnique({
+        const phoneCandidates = buildPhoneLookupCandidates(cleanPhone);
+        const existingClient = await tx.cRMClient.findFirst({
           where: {
-            crmclient_phone_env_unique: {
-              phone: cleanPhone,
-              environment: "carissma",
-            },
+            environment: "carissma",
+            phone: { in: phoneCandidates },
           },
         });
 
@@ -601,6 +638,21 @@ export async function returnRentalDressAction(rawInput: ReturnRentalDressInput):
       return { success: false, error: "Reserva no encontrada", code: "NOT_FOUND" };
     }
 
+    const wasInCustody = booking.guaranteeStatus === "En Custodia";
+    const effectivePenalty =
+      guaranteeStatus === "Retenida Total"
+        ? Math.max(penaltyFee || 0, booking.guaranteeAmount)
+        : guaranteeStatus === "Devuelta"
+        ? 0
+        : penaltyFee || 0;
+
+    const nextBookingStatus =
+      nextDressStatus === "Devuelto / Revisión"
+        ? "Devuelto / Revisión"
+        : nextDressStatus === "En Lavandería" || nextDressStatus === "Requiere Mantenimiento"
+        ? "En Lavandería"
+        : "Finalizado";
+
     const result = await prisma.$transaction(async (tx) => {
       // 1. Current open shift for Carissma
       const currentShift = await tx.carissmaCashShift.findFirst({
@@ -608,46 +660,65 @@ export async function returnRentalDressAction(rawInput: ReturnRentalDressInput):
         orderBy: { createdAt: "desc" },
       });
 
-      // 2. Update RentalBooking
+      // 2. Update RentalBooking with accurate penaltyFee
       const updatedBooking = await tx.rentalBooking.update({
         where: { id: bookingId },
         data: {
           actualReturnDate: new Date(),
-          penaltyFee,
+          penaltyFee: effectivePenalty,
           guaranteeStatus,
-          rentalStatus: nextDressStatus === "En Lavandería" ? "En Lavandería" : "Finalizado",
+          rentalStatus: nextBookingStatus,
           notes: notes ? (booking.notes ? `${booking.notes} | ${notes}` : notes) : booking.notes,
         },
       });
 
-      // 3. Update Dress status
+      // 3. Update Dress status (check if other active bookings exist before setting Disponible)
+      const otherActive = await tx.rentalBooking.findFirst({
+        where: {
+          id: { not: bookingId },
+          dressId: booking.dressId,
+          rentalStatus: { not: "Finalizado" },
+        },
+      });
+
+      const resolvedDressStatus =
+        nextDressStatus === "Disponible"
+          ? otherActive
+            ? "Reservado"
+            : "Disponible"
+          : "En Lavandería";
+
       await tx.dress.update({
         where: { id: booking.dressId },
         data: {
-          status: nextDressStatus === "En Lavandería" ? "En Lavandería" : "Disponible",
+          status: resolvedDressStatus,
           condition: nextDressStatus === "Requiere Mantenimiento" ? "Requiere Mantenimiento" : undefined,
         },
       });
 
-      // 4. Update Shift guarantees returned or penalties
-      if (currentShift) {
-        let returnedGuarantee = 0;
-        let penaltyRecorded = penaltyFee || 0;
+      // 4. Update physical cash shift balances ONLY once when guarantee leaves 'En Custodia'
+      if (currentShift && wasInCustody && booking.paymentMethod === "Efectivo") {
+        const g = booking.guaranteeAmount;
+        const returnedCash =
+          guaranteeStatus === "Devuelta"
+            ? g
+            : guaranteeStatus === "Retenida Parcial"
+            ? Math.max(0, g - effectivePenalty)
+            : 0;
 
-        if (guaranteeStatus === "Devuelta") {
-          returnedGuarantee = booking.guaranteeAmount;
-        } else if (guaranteeStatus === "Retenida Parcial") {
-          returnedGuarantee = Math.max(0, booking.guaranteeAmount - penaltyRecorded);
-        } else if (guaranteeStatus === "Retenida Total") {
-          penaltyRecorded = Math.max(penaltyRecorded, booking.guaranteeAmount);
-          returnedGuarantee = 0;
-        }
+        const isSameShift = booking.shiftId === currentShift.id;
+        const custodyDecrement = isSameShift ? Math.min(g, effectivePenalty) : 0;
+        const cashPenaltyIncrement = isSameShift ? effectivePenalty : Math.max(0, effectivePenalty - g);
 
         await tx.carissmaCashShift.update({
           where: { id: currentShift.id },
           data: {
-            totalGuaranteesReturned: returnedGuarantee > 0 ? { increment: returnedGuarantee } : undefined,
-            totalPenalties: penaltyRecorded > 0 ? { increment: penaltyRecorded } : undefined,
+            totalGuaranteesInCustody:
+              custodyDecrement > 0
+                ? Math.max(0, currentShift.totalGuaranteesInCustody - custodyDecrement)
+                : undefined,
+            totalGuaranteesReturned: returnedCash > 0 ? { increment: returnedCash } : undefined,
+            totalPenalties: cashPenaltyIncrement > 0 ? { increment: cashPenaltyIncrement } : undefined,
           },
         });
       }
@@ -704,7 +775,7 @@ export async function deleteRentalBookingAction(id: string): Promise<ActionRespo
                   ? Math.max(0, shift.totalSalesCard - booking.rentalPrice)
                   : undefined,
               totalGuaranteesInCustody:
-                booking.guaranteeStatus === "En Custodia"
+                booking.paymentMethod === "Efectivo" && booking.guaranteeStatus === "En Custodia"
                   ? Math.max(0, shift.totalGuaranteesInCustody - booking.guaranteeAmount)
                   : undefined,
             },
@@ -712,7 +783,32 @@ export async function deleteRentalBookingAction(id: string): Promise<ActionRespo
         }
       }
 
-      // 3. Liberate dress back to Disponible if no other active booking exists for it
+      // 3. Revert CRMClient stats if clientPhone belonged to a Carissma client
+      if (booking.clientPhone) {
+        const phoneCandidates = buildPhoneLookupCandidates(booking.clientPhone);
+        if (phoneCandidates.length > 0) {
+          const client = await tx.cRMClient.findFirst({
+            where: { environment: "carissma", phone: { in: phoneCandidates } },
+          });
+          if (client) {
+            const nextCount = Math.max(0, client.purchaseCount - 1);
+            await tx.cRMClient.update({
+              where: { id: client.id },
+              data: {
+                purchaseCount: nextCount,
+                totalSpent: Math.max(0, client.totalSpent - booking.rentalPrice),
+                loyaltyTier: calculateLoyaltyTier(nextCount),
+              },
+            });
+          }
+        }
+      }
+
+      // 4. Liberate dress and revert timesUsed if it had already been delivered
+      const hadBeenUsed = ["Entregado", "Devuelto / Revisión", "En Lavandería", "Finalizado"].includes(
+        booking.rentalStatus
+      );
+      const currentDress = await tx.dress.findUnique({ where: { id: booking.dressId } });
       const otherActive = await tx.rentalBooking.findFirst({
         where: {
           dressId: booking.dressId,
@@ -720,10 +816,13 @@ export async function deleteRentalBookingAction(id: string): Promise<ActionRespo
         },
       });
 
-      if (!otherActive) {
+      if (currentDress) {
         await tx.dress.update({
           where: { id: booking.dressId },
-          data: { status: "Disponible" },
+          data: {
+            status: otherActive ? "Reservado" : "Disponible",
+            timesUsed: hadBeenUsed ? Math.max(0, currentDress.timesUsed - 1) : undefined,
+          },
         });
       }
     });
@@ -740,7 +839,24 @@ export async function deleteCarissmaExpenseAction(id: string): Promise<ActionRes
     if (!id) {
       return { success: false, error: "ID de gasto requerido", code: "VALIDATION_ERROR" };
     }
-    await prisma.carissmaExpense.delete({ where: { id } });
+    const existing = await prisma.carissmaExpense.findUnique({ where: { id } });
+    if (!existing) {
+      return { success: false, error: "Gasto no encontrado", code: "NOT_FOUND" };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (existing.shiftId) {
+        const shift = await tx.carissmaCashShift.findUnique({ where: { id: existing.shiftId } });
+        if (shift && shift.status === "Open") {
+          await tx.carissmaCashShift.update({
+            where: { id: shift.id },
+            data: { totalExpenses: Math.max(0, shift.totalExpenses - existing.amount) },
+          });
+        }
+      }
+      await tx.carissmaExpense.delete({ where: { id } });
+    });
+
     return { success: true, data: { id } };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Error al eliminar gasto";
@@ -791,7 +907,7 @@ export async function openCarissmaCashShiftAction(openingBalance: number, cashie
       return { success: false, error: "Ya existe un turno de caja abierto en Carissma", code: "ALREADY_OPEN" };
     }
 
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = getBoliviaDateStr();
 
     const newShift = await prisma.carissmaCashShift.create({
       data: {
@@ -1019,6 +1135,7 @@ export async function getCarissmaFinancialSummaryAction(): Promise<ActionRespons
         netProfit,
         totalBookingsCount: bookings.length,
         totalDressesCount: dresses.length,
+        bookings,
         recentBookings: bookings.slice(0, 10),
         recentExpenses: expenses.slice(0, 10),
       },

@@ -27,7 +27,7 @@ import {
   returnRentalDressAction,
   deleteRentalBookingAction
 } from "@/app/actions/carissma";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateBolivia, getBoliviaDateStr } from "@/lib/utils";
 import { downloadExcelCsv } from "@/lib/export-csv";
 import { toast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -90,6 +90,7 @@ interface ShiftItem {
   discrepancy?: number | null;
   notes?: string | null;
   closedAt?: string | Date | null;
+  bookings?: BookingItem[];
 }
 
 interface DressItem {
@@ -189,12 +190,35 @@ export default function AccountingView() {
     setSubmittingExpense(false);
   };
 
+  const getDressRevenue = (d: DressItem): number => {
+    const dressBookings = bookings.filter((b) => b.dressId === d.id);
+    if (dressBookings.length > 0) {
+      return dressBookings.reduce((sum, b) => sum + (b.rentalPrice || 0) + (b.penaltyFee || 0), 0);
+    }
+    return (d.timesUsed || 0) * d.baseRentalPrice;
+  };
+
   const handleToggleGuarantee = async (booking: BookingItem, newStatus: "Devuelta" | "Retenida Parcial" | "Retenida Total") => {
+    const confirmed = await confirm({
+      title: "¿Liberar y devolver garantía?",
+      description: `¿Confirmas devolver íntegramente la garantía de ${formatCurrency(booking.guaranteeAmount)} del contrato "${booking.contractNumber}" (${booking.clientName})?`,
+      confirmText: "Sí, devolver garantía",
+      cancelText: "Cancelar",
+    });
+    if (!confirmed) return;
+
+    const preservedDressStatus: "Devuelto / Revisión" | "En Lavandería" | "Disponible" =
+      booking.rentalStatus === "En Lavandería"
+        ? "En Lavandería"
+        : booking.rentalStatus === "Devuelto / Revisión"
+        ? "Devuelto / Revisión"
+        : "Disponible";
+
     const res = await returnRentalDressAction({
       bookingId: booking.id,
       penaltyFee: booking.penaltyFee || 0,
       guaranteeStatus: newStatus,
-      nextDressStatus: "Disponible",
+      nextDressStatus: preservedDressStatus,
     });
 
     if (res.success) {
@@ -247,7 +271,7 @@ export default function AccountingView() {
   };
 
   const handleExportExcel = () => {
-    const todayStamp = new Date().toISOString().split("T")[0];
+    const todayStamp = getBoliviaDateStr();
 
     if (activeTab === "summary") {
       downloadExcelCsv(
@@ -255,7 +279,7 @@ export default function AccountingView() {
         ["Fecha", "Categoría", "Descripción", "Monto (Bs)"],
         [
           ...expenses.map((e) => [
-            new Date(e.expenseDate).toLocaleDateString(),
+            formatDateBolivia(e.expenseDate),
             e.category,
             e.description,
             e.amount,
@@ -281,8 +305,8 @@ export default function AccountingView() {
           b.dressName,
           b.dressSize,
           b.dressColor,
-          new Date(b.rentalStartDate).toLocaleDateString(),
-          new Date(b.rentalEndDate).toLocaleDateString(),
+          formatDateBolivia(b.rentalStartDate),
+          formatDateBolivia(b.rentalEndDate),
           b.rentalPrice,
           b.guaranteeAmount,
           b.guaranteeStatus,
@@ -317,9 +341,9 @@ export default function AccountingView() {
 
     downloadExcelCsv(
       `carissma-rentabilidad-prendas-${todayStamp}`,
-      ["Prenda", "Marca", "Talla", "Usos", "Precio Renta Base (Bs)", "Costo Adquisición (Bs)", "Ingresos Estimados (Bs)", "ROI (%)"],
+      ["Prenda", "Marca", "Talla", "Usos", "Precio Renta Base (Bs)", "Costo Adquisición (Bs)", "Ingresos Reales (Bs)", "ROI (%)"],
       dresses.map((d) => {
-        const rev = (d.timesUsed || 0) * d.baseRentalPrice;
+        const rev = getDressRevenue(d);
         const roi = d.acquisitionCost > 0 ? Math.round((rev / d.acquisitionCost) * 100) : 0;
         return [d.name, d.brand, d.size, d.timesUsed || 0, d.baseRentalPrice, d.acquisitionCost, rev, roi];
       })
@@ -426,7 +450,7 @@ export default function AccountingView() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-warm-200 pb-2 text-xs font-bold">
+      <div className="flex flex-wrap items-center gap-2 border-b border-warm-200 pb-2 text-xs font-bold print:hidden">
         <button
           onClick={() => setActiveTab("summary")}
           className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
@@ -499,7 +523,7 @@ export default function AccountingView() {
                 <tbody className="divide-y divide-warm-100 text-warm-900">
                   {expenses.map((exp) => (
                     <tr key={exp.id} className="hover:bg-warm-50/60 transition-colors">
-                      <td className="p-3 text-warm-500">{new Date(exp.expenseDate).toLocaleDateString()}</td>
+                      <td className="p-3 text-warm-500">{formatDateBolivia(exp.expenseDate)}</td>
                       <td className="p-3 font-semibold text-amberGold-900">{exp.category}</td>
                       <td className="p-3">{exp.description}</td>
                       <td className="p-3 font-bold text-rose-700 text-right">{formatCurrency(exp.amount)}</td>
@@ -518,12 +542,12 @@ export default function AccountingView() {
                 </tbody>
               </table>
             </div>
-            <div className="space-y-3 md:hidden">
+            <div className="space-y-3 md:hidden print:hidden">
               {expenses.map((exp) => (
                 <article key={exp.id} className="rounded-xl border border-warm-200 bg-warm-50/60 p-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-xs text-warm-500">{new Date(exp.expenseDate).toLocaleDateString()}</p>
+                      <p className="text-xs text-warm-500">{formatDateBolivia(exp.expenseDate)}</p>
                       <p className="mt-1 font-semibold text-sm text-warm-900 break-words">{exp.description}</p>
                     </div>
                     <div className="shrink-0 text-right">
@@ -555,7 +579,7 @@ export default function AccountingView() {
       {/* TAB 2: GUARANTEES */}
       {activeTab === "guarantees" && (
         <div className="space-y-4">
-          <div className="bg-white p-4 rounded-2xl border border-warm-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="bg-white p-4 rounded-2xl border border-warm-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
             <div className="relative w-full sm:w-80">
               <Search className="h-4 w-4 text-warm-400 absolute left-3 top-2.5" />
               <input
@@ -583,7 +607,7 @@ export default function AccountingView() {
           </div>
 
           <div className="bg-white rounded-3xl border border-warm-200 shadow-sm overflow-hidden">
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden md:block print:block overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-warm-50 text-warm-600 font-semibold border-b border-warm-200">
                   <tr>
@@ -593,7 +617,7 @@ export default function AccountingView() {
                     <th className="p-3">Depósito Garantía</th>
                     <th className="p-3">Estado Garantía</th>
                     <th className="p-3">Estado Renta</th>
-                    <th className="p-3 text-right">Acciones</th>
+                    <th className="p-3 text-right print:hidden">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-warm-100 text-warm-900">
@@ -625,7 +649,7 @@ export default function AccountingView() {
                       <td className="p-3">
                         <span className="text-[10px] font-semibold text-warm-600">{b.rentalStatus}</span>
                       </td>
-                      <td className="p-3 text-right space-x-1.5">
+                      <td className="p-3 text-right space-x-1.5 print:hidden">
                         {b.guaranteeStatus === "En Custodia" && (
                           <button
                             onClick={() => handleToggleGuarantee(b, "Devuelta")}
@@ -830,7 +854,7 @@ export default function AccountingView() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {topDresses.map((d) => {
-              const totalRevenue = (d.timesUsed || 0) * d.baseRentalPrice;
+              const totalRevenue = getDressRevenue(d);
               const roiPercent = d.acquisitionCost > 0 ? Math.round((totalRevenue / d.acquisitionCost) * 100) : 0;
               return (
                 <div key={d.id} className="p-4 bg-warm-50 rounded-2xl border border-warm-200 space-y-2">
@@ -844,7 +868,7 @@ export default function AccountingView() {
                   <p className="text-xs text-warm-500">{d.brand}</p>
                   <div className="pt-2 border-t border-warm-200 flex justify-between text-xs">
                     <div>
-                      <span className="text-[10px] text-warm-500">Ingresos Gen.:</span>
+                      <span className="text-[10px] text-warm-500">Ingresos Reales:</span>
                       <p className="font-bold text-amberGold-900">{formatCurrency(totalRevenue)}</p>
                     </div>
                     <div className="text-right">
@@ -948,6 +972,7 @@ export default function AccountingView() {
       <RentalContractModal
         isOpen={!!selectedContractBooking}
         booking={selectedContractBooking}
+        bookings={bookings}
         onClose={() => setSelectedContractBooking(null)}
         onDelete={handleDeleteBooking}
       />

@@ -3,7 +3,8 @@
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { ActionResponse } from "@/types/action-response";
-import { calculateLoyaltyTier, sanitizeClientPhoneAndName } from "@/lib/crm-utils";
+import { calculateLoyaltyTier, sanitizeClientPhoneAndName, buildPhoneLookupCandidates } from "@/lib/crm-utils";
+import { getBoliviaDateStr } from "@/lib/utils";
 
 const ProcessSaleSchema = z.object({
   customerName: z.string().optional(),
@@ -53,7 +54,7 @@ export async function processPOSSaleAction(rawInput: ProcessSaleInput): Promise<
     }
 
     const { customerName, customerPhone, totalAmount, discountAmount, paymentMethod, items } = parsed.data;
-    const ticketNumber = `TCK-${Date.now().toString().slice(-6)}`;
+    const ticketNumber = `TCK-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 90 + 10)}`;
 
     const result = await prisma.$transaction(async (tx) => {
       // 1. Create Ticket (decoupled from mandatory recipe stock blocking)
@@ -78,17 +79,33 @@ export async function processPOSSaleAction(rawInput: ProcessSaleInput): Promise<
         },
       });
 
-      // 2. Non-blocking deduction only for direct rawIngredientId sales (if enough stock)
+      // 2. Non-blocking stock deduction for direct rawIngredientId sales AND arrangement recipeItems
       for (const item of items) {
-        if (!item.rawIngredientId) continue;
-        const ingredient = await tx.rawIngredient.findUnique({
-          where: { id: item.rawIngredientId },
-        });
-        if (ingredient && ingredient.available >= item.quantity) {
-          await tx.rawIngredient.update({
+        if (item.rawIngredientId) {
+          const ingredient = await tx.rawIngredient.findUnique({
             where: { id: item.rawIngredientId },
-            data: { available: { decrement: item.quantity } },
           });
+          if (ingredient && ingredient.available > 0) {
+            const deductQty = Math.min(ingredient.available, item.quantity);
+            await tx.rawIngredient.update({
+              where: { id: item.rawIngredientId },
+              data: { available: { decrement: deductQty } },
+            });
+          }
+        } else if (item.recipeItems && item.recipeItems.length > 0) {
+          for (const r of item.recipeItems) {
+            const ingredient = await tx.rawIngredient.findUnique({
+              where: { id: r.rawIngredientId },
+            });
+            const totalNeeded = r.quantityNeeded * item.quantity;
+            if (ingredient && ingredient.available > 0 && totalNeeded > 0) {
+              const deductQty = Math.min(ingredient.available, totalNeeded);
+              await tx.rawIngredient.update({
+                where: { id: r.rawIngredientId },
+                data: { available: { decrement: deductQty } },
+              });
+            }
+          }
         }
       }
 
@@ -115,12 +132,11 @@ export async function processPOSSaleAction(rawInput: ProcessSaleInput): Promise<
       const cleanClientName = sanitized.name;
 
       if (cleanPhone && cleanPhone.length >= 6) {
-        const existingClient = await tx.cRMClient.findUnique({
+        const phoneCandidates = buildPhoneLookupCandidates(cleanPhone);
+        const existingClient = await tx.cRMClient.findFirst({
           where: {
-            crmclient_phone_env_unique: {
-              phone: cleanPhone,
-              environment: "farfalina",
-            },
+            environment: "farfalina",
+            phone: { in: phoneCandidates },
           },
         });
 
@@ -185,6 +201,26 @@ export async function recordMermaAction(rawInput: RecordMermaInput): Promise<Act
 
     const { rawIngredientId, quantityLost, reason } = parsed.data;
 
+    const ingredient = await prisma.rawIngredient.findUnique({
+      where: { id: rawIngredientId },
+    });
+
+    if (!ingredient) {
+      return {
+        success: false,
+        error: "El insumo seleccionado no existe",
+        code: "NOT_FOUND",
+      };
+    }
+
+    if (quantityLost > ingredient.available) {
+      return {
+        success: false,
+        error: `No puedes descartar ${quantityLost} ${ingredient.unit}; solo hay ${ingredient.available} ${ingredient.unit} disponibles en stock.`,
+        code: "INSUFFICIENT_STOCK",
+      };
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       // 1. Create MermaLog
       const log = await tx.mermaLog.create({
@@ -198,13 +234,11 @@ export async function recordMermaAction(rawInput: RecordMermaInput): Promise<Act
         },
       });
 
-      // 2. Decrement available quantity in RawIngredient
+      // 2. Decrement available quantity in RawIngredient safely
       await tx.rawIngredient.update({
         where: { id: rawIngredientId },
         data: {
-          available: {
-            decrement: quantityLost,
-          },
+          available: Math.max(0, ingredient.available - quantityLost),
         },
       });
 
@@ -258,7 +292,20 @@ export async function openCashShiftAction(openingBalance: number): Promise<Actio
       };
     }
 
-    const todayStr = new Date().toISOString().split("T")[0];
+    const existingOpen = await prisma.cashRegisterShift.findFirst({
+      where: { status: "Open" },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existingOpen) {
+      return {
+        success: false,
+        error: "Ya existe un turno de caja abierto. Ciérralo antes de abrir uno nuevo.",
+        code: "SHIFT_ALREADY_OPEN",
+      };
+    }
+
+    const todayStr = getBoliviaDateStr();
 
     const newShift = await prisma.cashRegisterShift.create({
       data: {
@@ -267,6 +314,7 @@ export async function openCashShiftAction(openingBalance: number): Promise<Actio
         status: "Open",
         totalSalesCash: 0,
         totalSalesQR: 0,
+        totalSalesCard: 0,
         totalExpenses: 0,
         notes: "Apertura de turno",
       },
@@ -320,6 +368,15 @@ export async function closeCashShiftAction(rawInput: CloseShiftInput): Promise<A
       };
     }
 
+    if (shift.status === "Closed") {
+      return {
+        success: false,
+        error: "Este turno de caja ya fue cerrado previamente",
+        code: "SHIFT_ALREADY_CLOSED",
+      };
+    }
+
+    const closedAtNow = new Date();
     // Theoretical Cash Balance = Opening Balance + Cash Sales - Expenses
     const theoreticalCash = shift.openingBalance + shift.totalSalesCash - shift.totalExpenses;
     const discrepancy = declaredCash - theoreticalCash;
@@ -329,6 +386,7 @@ export async function closeCashShiftAction(rawInput: CloseShiftInput): Promise<A
       where: {
         createdAt: {
           gte: shift.createdAt,
+          lte: closedAtNow,
         },
       },
       include: { ticketItems: true },
@@ -344,7 +402,7 @@ export async function closeCashShiftAction(rawInput: CloseShiftInput): Promise<A
         cashierName,
         status: "Closed",
         notes: notes || "Cierre de caja completado con informe de arqueo",
-        closedAt: new Date(),
+        closedAt: closedAtNow,
       },
     });
 
@@ -369,14 +427,28 @@ export async function closeCashShiftAction(rawInput: CloseShiftInput): Promise<A
 
 export async function getArchivedShiftsAction(): Promise<ActionResponse> {
   try {
-    const closedShifts = await prisma.cashRegisterShift.findMany({
-      where: { status: "Closed" },
-      orderBy: { closedAt: "desc" },
+    const [closedShifts, allTickets] = await Promise.all([
+      prisma.cashRegisterShift.findMany({
+        where: { status: "Closed" },
+        orderBy: { closedAt: "desc" },
+      }),
+      prisma.pOSTicket.findMany({
+        include: { ticketItems: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
+
+    const enrichedShifts = closedShifts.map((s) => {
+      const endBound = s.closedAt ? new Date(s.closedAt) : new Date();
+      const tickets = allTickets.filter(
+        (t) => t.createdAt >= s.createdAt && t.createdAt <= endBound
+      );
+      return { ...s, tickets };
     });
 
     return {
       success: true,
-      data: closedShifts,
+      data: enrichedShifts,
     };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Error al obtener cierres de caja archivados";

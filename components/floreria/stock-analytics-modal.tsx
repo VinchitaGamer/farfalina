@@ -18,7 +18,7 @@ import {
   InventoryProductRow,
   PurchaseHistoryRow,
 } from "@/app/actions/arrangements";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getBoliviaDateStr } from "@/lib/utils";
 import { downloadExcelCsv } from "@/lib/export-csv";
 import { toast } from "@/components/ui/toast";
 
@@ -34,8 +34,8 @@ export default function StockAnalyticsModal({ isOpen, onClose }: StockAnalyticsM
   const [categoryFilter, setCategoryFilter] = useState<string>("Todos");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const todayStr = new Date().toISOString().split("T")[0];
-  const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
+  const todayStr = getBoliviaDateStr();
+  const firstOfMonth = `${todayStr.slice(0, 7)}-01`;
 
   const [startDate, setStartDate] = useState(firstOfMonth);
   const [endDate, setEndDate] = useState(todayStr);
@@ -69,16 +69,16 @@ export default function StockAnalyticsModal({ isOpen, onClose }: StockAnalyticsM
   const applyFilter = (mode: "today" | "week" | "month" | "custom") => {
     setFilterMode(mode);
     const now = new Date();
+    const eDate = getBoliviaDateStr(now);
     let sDate = startDate;
-    const eDate = now.toISOString().split("T")[0];
 
     if (mode === "today") {
       sDate = eDate;
     } else if (mode === "week") {
       const past7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      sDate = past7.toISOString().split("T")[0];
+      sDate = getBoliviaDateStr(past7);
     } else if (mode === "month") {
-      sDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+      sDate = `${eDate.slice(0, 7)}-01`;
     }
 
     setStartDate(sDate);
@@ -647,19 +647,19 @@ export default function StockAnalyticsModal({ isOpen, onClose }: StockAnalyticsM
                     <tfoot className="bg-warm-100 border-t-2 border-warm-300 font-bold text-xs text-warm-900">
                       <tr>
                         <td colSpan={3} className="p-2 border-r border-warm-300 text-right uppercase">
-                          Totales:
+                          Totales ({filteredProducts.length}):
                         </td>
                         <td className="p-2 border-r border-warm-300 text-right font-mono">
-                          {summary.totalStockUnits.toLocaleString()} uds
+                          {filteredProducts.reduce((acc, p) => acc + p.available, 0).toLocaleString()} uds
                         </td>
                         <td colSpan={3} className="p-2 border-r border-warm-300 text-center text-[10px] text-warm-600">
-                          {summary.totalLowStockCount} en alerta
+                          {filteredProducts.filter((p) => p.status !== "Disponible").length} en alerta
                         </td>
                         <td className="p-2 border-r border-warm-300 text-right font-mono bg-emerald-100 text-emerald-950">
-                          {formatCurrency(summary.totalStockValuationBs)}
+                          {formatCurrency(filteredProducts.reduce((acc, p) => acc + p.stockValueBs, 0))}
                         </td>
                         <td className="p-2 text-right font-mono bg-rose-100 text-rose-950">
-                          {summary.totalMermas.toLocaleString()} uds
+                          {filteredProducts.reduce((acc, p) => acc + p.mermaLostQty, 0).toLocaleString()} uds
                         </td>
                       </tr>
                     </tfoot>

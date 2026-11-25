@@ -19,6 +19,7 @@ import {
   Check
 } from "lucide-react";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useAppStore } from "@/store/app-store";
 import {
   getDressesAction,
   createDressAction,
@@ -26,6 +27,8 @@ import {
   deleteDressAction,
   updateDressStatusAction,
   createRentalBookingAction,
+  deleteRentalBookingAction,
+  getCarissmaConfigAction,
   getCarissmaCurrentShiftAction,
   openCarissmaCashShiftAction,
   closeCarissmaCashShiftAction,
@@ -36,7 +39,7 @@ import { searchCRMClientsAction } from "@/app/actions/crm";
 import POSTicketModal, { CarissmaPOSTicketData } from "./pos-ticket-modal";
 import ShiftReportModal, { CarissmaShiftReportData } from "./shift-report-modal";
 import RentalContractModal, { RentalContractBooking } from "./rental-contract-modal";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getBoliviaDateStr } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 
 interface DressItem {
@@ -85,6 +88,7 @@ interface ArchivedShiftItem {
 
 export default function PosView() {
   const confirm = useConfirm();
+  const { setCarissmaRegisterOpen } = useAppStore();
   const [activeTab, setActiveTab] = useState<"terminal" | "stock" | "register">("terminal");
   const [mobileTerminalTab, setMobileTerminalTab] = useState<"dresses" | "cart">("dresses");
   const [dresses, setDresses] = useState<DressItem[]>([]);
@@ -114,11 +118,15 @@ export default function PosView() {
   const [crmSuggestions, setCrmSuggestions] = useState<CRMClientSuggestion[]>([]);
   const [showCrmSuggestions, setShowCrmSuggestions] = useState(false);
 
-  // Rental Dates
-  const [rentalStartDate, setRentalStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [rentalEndDate, setRentalEndDate] = useState(
-    new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+  // Rental Dates & Dynamic Config
+  const [rentalStartDate, setRentalStartDate] = useState(() => getBoliviaDateStr());
+  const [rentalEndDate, setRentalEndDate] = useState(() =>
+    getBoliviaDateStr(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000))
   );
+  const [decayRate, setDecayRate] = useState(5.0);
+  const [minFloorPercent, setMinFloorPercent] = useState(40.0);
+  const [isProcessingSale, setIsProcessingSale] = useState(false);
+  const [submittingShift, setSubmittingShift] = useState(false);
 
   // Payment Calculation
   const [paymentMethod, setPaymentMethod] = useState<"Efectivo" | "QR" | "Tarjeta">("Efectivo");
@@ -130,6 +138,7 @@ export default function PosView() {
   const [ticketData, setTicketData] = useState<CarissmaPOSTicketData | null>(null);
   const [contractModalOpen, setContractModalOpen] = useState(false);
   const [contractBooking, setContractBooking] = useState<RentalContractBooking | null>(null);
+  const [contractBookingsList, setContractBookingsList] = useState<RentalContractBooking[]>([]);
   const [shiftReportModalOpen, setShiftReportModalOpen] = useState(false);
   const [activeShiftReport, setActiveShiftReport] = useState<CarissmaShiftReportData | null>(null);
 
@@ -150,14 +159,14 @@ export default function PosView() {
 
   // Dress Form state
   const [dressName, setDressName] = useState("");
-  const [dressBrand, setDressBrand] = useState("Carolina Herrera");
+  const [dressBrand, setDressBrand] = useState("");
   const [dressSize, setDressSize] = useState<"XS" | "S" | "M" | "L" | "XL">("M");
   const [dressCategory, setDressCategory] = useState("Gala");
   const [dressImageUrl, setDressImageUrl] = useState("");
   const [dressBasePrice, setDressBasePrice] = useState<number | string>(450);
   const [dressAcqCost, setDressAcqCost] = useState<number | string>(2500);
   const [dressGuarantee, setDressGuarantee] = useState<number | string>(500);
-  const [dressColor, setDressColor] = useState("Rosa Gold");
+  const [dressColor, setDressColor] = useState("");
   const [dressCondition, setDressCondition] = useState<"Excelente" | "Bueno" | "Requiere Mantenimiento">("Excelente");
 
   const DRESS_CATEGORIES = ["Todos", "Gala", "Novia", "Quinceañera", "Coctel", "Graduación", "Fiesta"];
@@ -167,19 +176,41 @@ export default function PosView() {
     loadAll();
   }, []);
 
+  const computeSuggestedPrice = (dress: DressItem) => {
+    const base = dress.baseRentalPrice || 450;
+    const maxDiscount = (100 - minFloorPercent) / 100;
+    const dep = Math.min(maxDiscount, ((dress.timesUsed || 0) * decayRate) / 100);
+    return Math.round(Math.max(base * (minFloorPercent / 100), base * (1 - dep)));
+  };
+
   const loadAll = async () => {
     setLoading(true);
-    const [dressesRes, shiftRes, archRes] = await Promise.all([
+    const [dressesRes, shiftRes, archRes, cfgRes] = await Promise.all([
       getDressesAction(),
       getCarissmaCurrentShiftAction(),
       getCarissmaArchivedShiftsAction(),
+      getCarissmaConfigAction(),
     ]);
 
     if (dressesRes.success && Array.isArray(dressesRes.data)) {
       setDresses(dressesRes.data as DressItem[]);
     }
-    if (shiftRes.success) setCurrentShift(shiftRes.data as ArchivedShiftItem);
+    if (shiftRes.success) {
+      setCurrentShift(shiftRes.data as ArchivedShiftItem);
+      setCarissmaRegisterOpen(Boolean(shiftRes.data));
+    }
     if (archRes.success && Array.isArray(archRes.data)) setArchivedShifts(archRes.data as ArchivedShiftItem[]);
+    if (cfgRes.success && cfgRes.data) {
+      const cfg = cfgRes.data as {
+        defaultRentalDays?: number;
+        decayRatePerUsage?: number;
+        minPriceFloorPercent?: number;
+      };
+      if (typeof cfg.decayRatePerUsage === "number") setDecayRate(cfg.decayRatePerUsage);
+      if (typeof cfg.minPriceFloorPercent === "number") setMinFloorPercent(cfg.minPriceFloorPercent);
+      const days = cfg.defaultRentalDays ?? 3;
+      setRentalEndDate(getBoliviaDateStr(new Date(Date.now() + days * 24 * 60 * 60 * 1000)));
+    }
     setLoading(false);
   };
 
@@ -205,8 +236,13 @@ export default function PosView() {
   };
 
   const addToCart = (dress: DressItem) => {
-    if (dress.status !== "Disponible") {
-      toast.error(`El vestido "${dress.name}" no está disponible (${dress.status})`);
+    const todayYmd = getBoliviaDateStr();
+    if (dress.condition === "Requiere Mantenimiento") {
+      toast.error(`El vestido "${dress.name}" requiere mantenimiento antes de alquilarse`);
+      return;
+    }
+    if (dress.status === "En Lavandería" && rentalStartDate <= todayYmd) {
+      toast.error(`El vestido "${dress.name}" se encuentra en tintorería para entrega hoy`);
       return;
     }
     const exists = cart.find((c) => c.dress.id === dress.id);
@@ -219,8 +255,8 @@ export default function PosView() {
       {
         dress,
         qty: 1,
-        rentalPrice: dress.baseRentalPrice || 450,
-        guarantee: dress.requiredGuarantee || 500,
+        rentalPrice: computeSuggestedPrice(dress),
+        guarantee: dress.requiredGuarantee ?? 500,
       },
     ]);
   };
@@ -237,6 +273,7 @@ export default function PosView() {
     paymentMethod === "Efectivo" && Number(cashGiven) >= grandTotal ? Number(cashGiven) - grandTotal : 0;
 
   const handleProcessSale = async () => {
+    if (isProcessingSale) return;
     if (cart.length === 0) {
       toast.error("El carrito está vacío");
       return;
@@ -245,13 +282,20 @@ export default function PosView() {
       toast.error("Ingresa el nombre de la clienta");
       return;
     }
+    if (rentalEndDate < rentalStartDate) {
+      toast.error("La fecha de retorno no puede ser anterior a la fecha de retiro");
+      return;
+    }
     if (paymentMethod === "Efectivo" && Number(cashGiven) < grandTotal && cashGiven !== "") {
       toast.error("El efectivo entregado es menor al total a percibir");
       return;
     }
 
-    const createdContracts: string[] = [];
-    let firstBookingData: RentalContractBooking | null = null;
+    setIsProcessingSale(true);
+    const createdBookings: RentalContractBooking[] = [];
+    const succeededCartItems: typeof cart = [];
+    const failedCartItems: typeof cart = [];
+    const errorMessages: string[] = [];
 
     for (const item of cart) {
       const res = await createRentalBookingAction({
@@ -267,26 +311,37 @@ export default function PosView() {
       });
 
       if (res.success && res.data) {
-        const bookingData = res.data as { contractNumber: string };
-        createdContracts.push(bookingData.contractNumber);
-        if (!firstBookingData) {
-          firstBookingData = res.data as unknown as RentalContractBooking;
-        }
+        createdBookings.push(res.data as unknown as RentalContractBooking);
+        succeededCartItems.push(item);
+      } else {
+        failedCartItems.push(item);
+        if (res.error) errorMessages.push(res.error);
       }
     }
 
-    if (createdContracts.length > 0) {
-      toast.success("¡Cobro y Alquiler registrado exitosamente!");
+    setIsProcessingSale(false);
 
-      if (firstBookingData) {
-        setContractBooking(firstBookingData);
+    if (createdBookings.length > 0) {
+      if (failedCartItems.length > 0) {
+        toast.error(
+          `Se registraron ${createdBookings.length} prenda(s), pero ${failedCartItems.length} fallaron: ${errorMessages[0] || "Conflicto de fechas"}`
+        );
+      } else {
+        toast.success("¡Cobro y Alquiler registrado exitosamente!");
       }
 
+      setContractBooking(createdBookings[0]);
+      setContractBookingsList(createdBookings);
+
+      const succeededRentals = succeededCartItems.reduce((acc, c) => acc + c.rentalPrice, 0);
+      const succeededGuarantees = succeededCartItems.reduce((acc, c) => acc + c.guarantee, 0);
+      const succeededTotal = succeededRentals + succeededGuarantees;
+
       setTicketData({
-        contractNumber: createdContracts.join(", "),
+        contractNumber: createdBookings.map((b) => b.contractNumber).join(", "),
         clientName: clientName.trim(),
         clientPhone: clientPhone.trim() || undefined,
-        items: cart.map((c) => ({
+        items: succeededCartItems.map((c) => ({
           name: c.dress.name,
           size: c.dress.size,
           color: c.dress.color,
@@ -295,30 +350,38 @@ export default function PosView() {
         })),
         rentalStartDate,
         rentalEndDate,
-        totalRental: totalRentals,
-        totalGuarantee: totalGuarantees,
+        totalRental: succeededRentals,
+        totalGuarantee: succeededGuarantees,
         paymentMethod,
         cashGiven: paymentMethod === "Efectivo" && Number(cashGiven) > 0 ? Number(cashGiven) : undefined,
-        change: changeDue,
+        change:
+          paymentMethod === "Efectivo" && Number(cashGiven) >= succeededTotal
+            ? Number(cashGiven) - succeededTotal
+            : 0,
         date: new Date().toISOString(),
         cashierName,
       });
 
       setTicketModalOpen(true);
-      setCart([]);
-      setClientName("");
-      setClientPhone("");
-      setCashGiven("");
-      setNotes("");
+      setCart(failedCartItems);
+      if (failedCartItems.length === 0) {
+        setClientName("");
+        setClientPhone("");
+        setCashGiven("");
+        setNotes("");
+      }
       loadAll();
     } else {
-      toast.error("Error al procesar el alquiler");
+      toast.error(errorMessages[0] || "Error al procesar el alquiler");
     }
   };
 
   const handleOpenShift = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingShift) return;
+    setSubmittingShift(true);
     const res = await openCarissmaCashShiftAction(Number(openingBalance), cashierName);
+    setSubmittingShift(false);
     if (res.success) {
       toast.success("¡Turno de caja abierto!");
       setOpenShiftModalOpen(false);
@@ -330,7 +393,8 @@ export default function PosView() {
 
   const handleCloseShift = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentShift) return;
+    if (!currentShift || submittingShift) return;
+    setSubmittingShift(true);
 
     const res = await closeCarissmaCashShiftAction({
       shiftId: currentShift.id,
@@ -338,11 +402,13 @@ export default function PosView() {
       cashierName,
       notes: closingNotes.trim() || undefined,
     });
+    setSubmittingShift(false);
 
     if (res.success && res.data) {
       toast.success("¡Turno cerrado y arqueo registrado!");
       setCloseShiftModalOpen(false);
-      setActiveShiftReport(res.data as CarissmaShiftReportData);
+      const payload = res.data as { shift?: CarissmaShiftReportData };
+      setActiveShiftReport(payload.shift || (res.data as CarissmaShiftReportData));
       setShiftReportModalOpen(true);
       loadAll();
     } else {
@@ -372,14 +438,14 @@ export default function PosView() {
   const handleOpenNewDressModal = () => {
     setEditingDress(null);
     setDressName("");
-    setDressBrand("Carolina Herrera");
+    setDressBrand("");
     setDressSize("M");
     setDressCategory("Gala");
     setDressImageUrl("");
     setDressBasePrice(450);
     setDressAcqCost(2500);
     setDressGuarantee(500);
-    setDressColor("Rosa Gold");
+    setDressColor("");
     setDressCondition("Excelente");
     setIsDressModalOpen(true);
   };
@@ -682,15 +748,18 @@ export default function PosView() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[560px] overflow-y-auto p-1">
               {filteredDresses.map((dress) => {
                 const isSelected = cart.some((c) => c.dress.id === dress.id);
+                const blockedNow =
+                  dress.condition === "Requiere Mantenimiento" ||
+                  (dress.status === "En Lavandería" && rentalStartDate <= getBoliviaDateStr());
                 return (
                   <button
                     key={dress.id}
                     onClick={() => addToCart(dress)}
-                    disabled={dress.status !== "Disponible"}
+                    disabled={blockedNow}
                     className={`p-3 bg-white rounded-2xl border text-left flex flex-col justify-between transition-all group ${
                       isSelected
                         ? "border-amberGold-500 ring-2 ring-amberGold-200 shadow-sm"
-                        : dress.status === "Disponible"
+                        : !blockedNow
                         ? "border-warm-200 hover:border-amberGold-400 hover:shadow-sm"
                         : "border-warm-200 opacity-60 cursor-not-allowed bg-warm-50"
                     }`}
@@ -720,10 +789,10 @@ export default function PosView() {
 
                     <div className="mt-2 pt-2 border-t border-warm-100 flex items-center justify-between">
                       <span className="font-bold text-xs text-amberGold-800">
-                        {formatCurrency(dress.baseRentalPrice || 450)}
+                        {formatCurrency(computeSuggestedPrice(dress))}
                       </span>
                       <span className="text-[10px] text-emerald-700 font-semibold">
-                        Garantía: {formatCurrency(dress.requiredGuarantee || 500)}
+                        Garantía: {formatCurrency(dress.requiredGuarantee ?? 500)}
                       </span>
                     </div>
                   </button>
@@ -912,11 +981,11 @@ export default function PosView() {
             {/* Checkout Action Button */}
             <button
               onClick={handleProcessSale}
-              disabled={cart.length === 0 || !clientName.trim()}
+              disabled={isProcessingSale || cart.length === 0 || !clientName.trim()}
               className="w-full min-h-[48px] py-3 bg-amberGold-600 hover:bg-amberGold-700 active:bg-amberGold-800 disabled:opacity-50 text-white rounded-2xl text-xs font-extrabold shadow-warm flex items-center justify-center gap-2 transition-all touch-manipulation active:scale-98"
             >
               <CheckCircle2 className="h-4 w-4" />
-              <span>Confirmar Alquiler & Emitir Ticket</span>
+              <span>{isProcessingSale ? "Procesando Alquiler..." : "Confirmar Alquiler & Emitir Ticket"}</span>
             </button>
           </div>
         </div>
@@ -1229,8 +1298,10 @@ export default function PosView() {
                   <p className="font-bold text-rose-700">-{formatCurrency(currentShift.totalExpenses || 0)}</p>
                 </div>
                 <div className="p-3 bg-warm-50 rounded-xl space-y-1">
-                  <span className="text-warm-500">Cobros QR / Banco:</span>
-                  <p className="font-bold text-blue-700">{formatCurrency(currentShift.totalSalesQR || 0)}</p>
+                  <span className="text-warm-500">Cobros QR / Tarjeta:</span>
+                  <p className="font-bold text-blue-700">
+                    {formatCurrency((currentShift.totalSalesQR || 0) + (currentShift.totalSalesCard || 0))}
+                  </p>
                 </div>
                 <div className="p-3 bg-emerald-50 rounded-xl space-y-1 border border-emerald-200">
                   <span className="text-emerald-700 font-bold">Efectivo Teórico en Gaveta:</span>
@@ -1468,7 +1539,7 @@ export default function PosView() {
               <div className="space-y-1">
                 <label className="font-bold text-warm-800">URL Imagen (Opcional)</label>
                 <input
-                  type="url"
+                  type="text"
                   value={dressImageUrl}
                   onChange={(e) => setDressImageUrl(e.target.value)}
                   placeholder="https://images.unsplash.com/..."
@@ -1691,7 +1762,20 @@ export default function PosView() {
       <RentalContractModal
         isOpen={contractModalOpen && !!contractBooking}
         booking={contractBooking}
+        bookings={contractBookingsList}
         onClose={() => setContractModalOpen(false)}
+        onDelete={async (b) => {
+          const ok = await confirm(`¿Deseas anular el contrato ${b.contractNumber} y liberar "${b.dressName}"?`);
+          if (!ok) return;
+          const res = await deleteRentalBookingAction(b.id);
+          if (res.success) {
+            toast.success(`Contrato ${b.contractNumber} anulado`);
+            setContractModalOpen(false);
+            loadAll();
+          } else {
+            toast.error(res.error || "No se pudo anular el contrato");
+          }
+        }}
       />
 
       {/* Shift Report Modal */}

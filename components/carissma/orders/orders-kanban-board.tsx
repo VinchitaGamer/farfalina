@@ -2,7 +2,7 @@
 
 import React from "react";
 import { ArrowRight, ArrowLeft, Printer, Shield, AlertTriangle, Check, Trash2 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateBolivia, extractCalendarDateStr, getBoliviaDateStr } from "@/lib/utils";
 import { BookingItem } from "../orders-view";
 
 interface OrdersKanbanBoardProps {
@@ -21,6 +21,8 @@ export default function OrdersKanbanBoard({
   onDeleteBooking,
 }: OrdersKanbanBoardProps) {
   const [activeStage, setActiveStage] = React.useState<BookingItem["rentalStatus"]>("Reservado");
+  const [showAllFinalizado, setShowAllFinalizado] = React.useState(false);
+  const todayBolivia = getBoliviaDateStr();
   const stageReservado = filteredBookings.filter((b) => b.rentalStatus === "Reservado");
   const stagePrueba = filteredBookings.filter((b) => b.rentalStatus === "En Prueba");
   const stageEntregado = filteredBookings.filter((b) => b.rentalStatus === "Entregado");
@@ -115,7 +117,7 @@ export default function OrdersKanbanBoard({
                     <p className="text-[10px] text-warm-500 truncate">{b.dressName}</p>
                   </div>
                   <div className="flex flex-col gap-1 border-t border-warm-100 pt-1.5 text-[10px] text-warm-500">
-                    <span>Retiro: {new Date(b.rentalStartDate).toLocaleDateString()}</span>
+                    <span>Retiro: {formatDateBolivia(b.rentalStartDate)}</span>
                     <span className="font-bold text-amberGold-800">{formatCurrency(b.rentalPrice)}</span>
                   </div>
                   <button
@@ -190,7 +192,7 @@ export default function OrdersKanbanBoard({
               <p className="p-4 text-center text-[11px] text-warm-400">Sin prendas en uso</p>
             ) : (
               stageEntregado.map((b) => {
-                const isOverdue = new Date(b.rentalEndDate) < new Date();
+                const isOverdue = extractCalendarDateStr(b.rentalEndDate) < todayBolivia;
                 return (
                   <div key={b.id} className={`bg-white rounded-xl border ${isOverdue ? "border-rose-400 ring-2 ring-rose-100" : "border-warm-200"} p-2.5 space-y-2 shadow-xs`}>
                     <div className="flex justify-between items-center gap-1">
@@ -210,7 +212,7 @@ export default function OrdersKanbanBoard({
                     </div>
                     <div className="text-[10px] text-warm-500 border-t border-warm-100 pt-1.5">
                       <p>
-                        Retorno: <strong className={isOverdue ? "text-rose-700" : "text-warm-800"}>{new Date(b.rentalEndDate).toLocaleDateString()}</strong>
+                        Retorno: <strong className={isOverdue ? "text-rose-700" : "text-warm-800"}>{formatDateBolivia(b.rentalEndDate)}</strong>
                       </p>
                     </div>
                     <div className="space-y-1.5">
@@ -343,25 +345,38 @@ export default function OrdersKanbanBoard({
             {stageFinalizado.length === 0 ? (
               <p className="p-4 text-center text-[11px] text-warm-400">Sin historial</p>
             ) : (
-              stageFinalizado.slice(0, 10).map((b) => (
-                <div key={b.id} className="bg-white rounded-xl border border-warm-200 p-2.5 space-y-1.5 shadow-xs">
-                  <div className="flex justify-between items-center gap-1">
-                    <span className="text-[9px] font-mono text-warm-500 truncate">{b.contractNumber}</span>
-                    {renderCardActions(b)}
+              <>
+                {(showAllFinalizado ? stageFinalizado : stageFinalizado.slice(0, 10)).map((b) => (
+                  <div key={b.id} className="bg-white rounded-xl border border-warm-200 p-2.5 space-y-1.5 shadow-xs">
+                    <div className="flex justify-between items-center gap-1">
+                      <span className="text-[9px] font-mono text-warm-500 truncate">{b.contractNumber}</span>
+                      {renderCardActions(b)}
+                    </div>
+                    <p className="font-bold text-[11px] text-warm-900 truncate">{b.clientName}</p>
+                    <p className="text-[10px] text-warm-500 truncate">{b.dressName}</p>
+                    <button
+                      type="button"
+                      onClick={() => handleAdvanceStatus(b, "En Lavandería")}
+                      className="flex min-h-8 w-full items-center justify-center gap-1 rounded-lg bg-warm-100 px-2 py-1 text-[10px] font-bold text-warm-700 hover:bg-warm-200 transition-colors"
+                      title="Reabrir en 5. Tintorería"
+                    >
+                      <ArrowLeft className="h-3 w-3" />
+                      <span>Volver a Tintorería</span>
+                    </button>
                   </div>
-                  <p className="font-bold text-[11px] text-warm-900 truncate">{b.clientName}</p>
-                  <p className="text-[10px] text-warm-500 truncate">{b.dressName}</p>
+                ))}
+                {stageFinalizado.length > 10 && (
                   <button
                     type="button"
-                    onClick={() => handleAdvanceStatus(b, "En Lavandería")}
-                    className="flex min-h-8 w-full items-center justify-center gap-1 rounded-lg bg-warm-100 px-2 py-1 text-[10px] font-bold text-warm-700 hover:bg-warm-200 transition-colors"
-                    title="Reabrir en 5. Tintorería"
+                    onClick={() => setShowAllFinalizado((prev) => !prev)}
+                    className="w-full py-1.5 px-2 rounded-xl border border-warm-200 bg-white hover:bg-warm-100 text-[10px] font-bold text-warm-700 transition-colors"
                   >
-                    <ArrowLeft className="h-3 w-3" />
-                    <span>Volver a Tintorería</span>
+                    {showAllFinalizado
+                      ? "Mostrar últimos 10"
+                      : `Ver todos (${stageFinalizado.length})`}
                   </button>
-                </div>
-              ))
+                )}
+              </>
             )}
           </div>
         </div>

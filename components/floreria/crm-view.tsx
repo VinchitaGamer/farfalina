@@ -24,8 +24,13 @@ import {
   getCRMDataAction,
   deleteContentCampaignAction,
   deleteCRMClientAction,
+  createCRMClientAction,
+  updateCRMClientAction,
+  createSpecialEventAction,
+  deleteSpecialEventAction,
 } from "@/app/actions/crm";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getBoliviaDateStr, extractCalendarDateStr, formatDateBolivia } from "@/lib/utils";
+import { formatWhatsAppPhoneBolivia } from "@/lib/crm-utils";
 import { toast } from "@/components/ui/toast";
 import ContentCampaignModal, { ContentCampaignItem } from "./content-campaign-modal";
 import LoyaltyConfigModal from "./loyalty-config-modal";
@@ -88,6 +93,24 @@ export default function CrmView() {
   // Loyalty Config Modal State
   const [loyaltyModalOpen, setLoyaltyModalOpen] = useState(false);
 
+  // Create / Edit Client Modal State
+  const [clientModalOpen, setClientModalOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<CRMClientItem | null>(null);
+  const [clientFormName, setClientFormName] = useState("");
+  const [clientFormPhone, setClientFormPhone] = useState("");
+  const [clientFormFlower, setClientFormFlower] = useState("");
+  const [clientFormNotes, setClientFormNotes] = useState("");
+  const [savingClient, setSavingClient] = useState(false);
+
+  // Create Special Event Modal State
+  const [eventModalOpen, setEventModalOpen] = useState(false);
+  const [eventTitle, setEventTitle] = useState("");
+  const [eventType, setEventType] = useState("Aniversario");
+  const [eventDate, setEventDate] = useState(getBoliviaDateStr());
+  const [eventClientId, setEventClientId] = useState("");
+  const [eventNotes, setEventNotes] = useState("");
+  const [savingEvent, setSavingEvent] = useState(false);
+
   // Search in Client Directory
   const [clientSearch, setClientSearch] = useState("");
 
@@ -120,12 +143,109 @@ export default function CrmView() {
   };
 
   const handleSendWhatsAppReminder = (phone: string, clientName: string, eventTitle: string) => {
-    const cleanPhone = phone.replace(/\D/g, "");
+    const cleanPhone = formatWhatsAppPhoneBolivia(phone);
+    if (!cleanPhone) {
+      toast.error("El cliente no tiene un número válido para WhatsApp");
+      return;
+    }
     const message = encodeURIComponent(
       `¡Hola ${clientName}! 💐 Te saludamos de Florería Farfalina. Te recordamos con anticipación la fecha especial de "${eventTitle}". ¿Deseas que preparemos un arreglo exclusivo para esta ocasión?`
     );
     window.open(`https://wa.me/${cleanPhone}?text=${message}`, "_blank");
     toast.success(`Abriendo WhatsApp para enviar recordatorio a ${clientName}`);
+  };
+
+  const openNewClientModal = () => {
+    setEditingClient(null);
+    setClientFormName("");
+    setClientFormPhone("");
+    setClientFormFlower("");
+    setClientFormNotes("");
+    setClientModalOpen(true);
+  };
+
+  const openEditClientModal = (c: CRMClientItem) => {
+    setEditingClient(c);
+    setClientFormName(c.name);
+    setClientFormPhone(c.phone);
+    setClientFormFlower(c.favoriteFlower || "");
+    setClientFormNotes(c.notes || "");
+    setClientModalOpen(true);
+  };
+
+  const handleSaveClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (savingClient) return;
+    if (!clientFormName.trim() || !clientFormPhone.trim()) {
+      toast.error("Completa el nombre y el teléfono del cliente");
+      return;
+    }
+    setSavingClient(true);
+    const res = editingClient
+      ? await updateCRMClientAction({
+          id: editingClient.id,
+          name: clientFormName.trim(),
+          phone: clientFormPhone.trim(),
+          favoriteFlower: clientFormFlower.trim() || undefined,
+          notes: clientFormNotes.trim() || undefined,
+        })
+      : await createCRMClientAction({
+          name: clientFormName.trim(),
+          phone: clientFormPhone.trim(),
+          environment: "farfalina",
+          favoriteFlower: clientFormFlower.trim() || undefined,
+          notes: clientFormNotes.trim() || undefined,
+        });
+    setSavingClient(false);
+    if (res.success) {
+      toast.success(editingClient ? "Cliente actualizado" : "Cliente registrado en el directorio");
+      setClientModalOpen(false);
+      setEditingClient(null);
+      loadCRMData();
+    } else {
+      toast.error(res.error || "Error al guardar cliente");
+    }
+  };
+
+  const handleCreateSpecialEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (savingEvent) return;
+    if (!eventTitle.trim() || !eventDate) {
+      toast.error("Ingresa el título y la fecha especial");
+      return;
+    }
+    setSavingEvent(true);
+    const res = await createSpecialEventAction({
+      clientId: eventClientId || undefined,
+      environment: "farfalina",
+      title: eventTitle.trim(),
+      eventType,
+      eventDate,
+      description: eventNotes.trim() || undefined,
+    });
+    setSavingEvent(false);
+    if (res.success) {
+      toast.success("Fecha especial agendada en el calendario");
+      setEventModalOpen(false);
+      setEventTitle("");
+      setEventNotes("");
+      setEventClientId("");
+      loadCRMData();
+    } else {
+      toast.error(res.error || "Error al agendar fecha especial");
+    }
+  };
+
+  const handleDeleteSpecialEvent = async (eventId: string) => {
+    const ok = await confirm("¿Deseas eliminar este recordatorio / fecha especial?");
+    if (!ok) return;
+    const res = await deleteSpecialEventAction(eventId);
+    if (res.success) {
+      toast.success("Fecha especial eliminada");
+      loadCRMData();
+    } else {
+      toast.error(res.error || "No se pudo eliminar la fecha especial");
+    }
   };
 
   const handleDeleteCampaign = async (campaignId: string) => {
@@ -168,16 +288,13 @@ export default function CrmView() {
     "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
   ];
 
-  // Helper to check if a specific day is in the selected campaign range
+  // Helper to check if a specific day is in the selected campaign range (timezone-safe YYYY-MM-DD)
   const isDayInSelectedCampaign = (dayNum: number) => {
     if (!selectedCampaign) return false;
-    const start = new Date(selectedCampaign.startDate);
-    const end = selectedCampaign.endDate ? new Date(selectedCampaign.endDate) : new Date(start);
-    start.setHours(0, 0, 0, 0);
-    end.setHours(23, 59, 59, 999);
-
-    const currentCheck = new Date(year, month, dayNum, 12, 0, 0);
-    return currentCheck >= start && currentCheck <= end;
+    const startYmd = extractCalendarDateStr(selectedCampaign.startDate);
+    const endYmd = selectedCampaign.endDate ? extractCalendarDateStr(selectedCampaign.endDate) : startYmd;
+    const checkYmd = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+    return checkYmd >= startYmd && checkYmd <= endYmd;
   };
 
   // Filtered Clients for Directory
@@ -328,17 +445,29 @@ export default function CrmView() {
               )}
             </div>
 
-            {/* "+ Nueva Pieza de Contenido / Campaña" Button */}
-            <button
-              onClick={() => {
-                setCampaignToEdit(null);
-                setCampaignModalOpen(true);
-              }}
-              className="min-h-11 max-w-full px-4 py-2 bg-terracotta-500 hover:bg-terracotta-600 text-white rounded-xl text-xs font-bold transition-all shadow-warm flex items-center justify-center gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              <span>+ Nueva Pieza de Contenido / Campaña</span>
-            </button>
+            {/* Action Buttons in Calendar Header */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  setEventDate(getBoliviaDateStr());
+                  setEventModalOpen(true);
+                }}
+                className="min-h-11 px-3.5 py-2 bg-pink-50 hover:bg-pink-100 text-pink-800 border border-pink-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+              >
+                <Gift className="h-4 w-4 text-pink-600" />
+                <span>+ Fecha Especial</span>
+              </button>
+              <button
+                onClick={() => {
+                  setCampaignToEdit(null);
+                  setCampaignModalOpen(true);
+                }}
+                className="min-h-11 max-w-full px-4 py-2 bg-terracotta-500 hover:bg-terracotta-600 text-white rounded-xl text-xs font-bold transition-all shadow-warm flex items-center justify-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                <span>+ Nueva Pieza de Contenido / Campaña</span>
+              </button>
+            </div>
           </div>
 
           {/* Calendar Grid */}
@@ -364,25 +493,19 @@ export default function CrmView() {
                   {/* Month days */}
                   {Array.from({ length: daysInMonth }).map((_, idx) => {
                     const dayNum = idx + 1;
-                    const cellDate = new Date(year, month, dayNum);
+                    const cellYmd = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
 
                     // Check if day is within selected campaign
                     const isHighlighted = isDayInSelectedCampaign(dayNum);
 
                     // Find events starting or happening this day
-                    const dayEvents = events.filter((e) => {
-                      const d = new Date(e.eventDate);
-                      return d.getDate() === dayNum && d.getMonth() === month && d.getFullYear() === year;
-                    });
+                    const dayEvents = events.filter((e) => extractCalendarDateStr(e.eventDate) === cellYmd);
 
                     // Find content campaigns active on this day
                     const dayCampaigns = campaigns.filter((c) => {
-                      const start = new Date(c.startDate);
-                      const end = c.endDate ? new Date(c.endDate) : new Date(start);
-                      start.setHours(0, 0, 0, 0);
-                      end.setHours(23, 59, 59, 999);
-                      const check = new Date(year, month, dayNum, 12, 0, 0);
-                      return check >= start && check <= end;
+                      const startYmd = extractCalendarDateStr(c.startDate);
+                      const endYmd = c.endDate ? extractCalendarDateStr(c.endDate) : startYmd;
+                      return cellYmd >= startYmd && cellYmd <= endYmd;
                     });
 
                     const hasActivity = dayEvents.length > 0 || dayCampaigns.length > 0;
@@ -462,19 +585,35 @@ export default function CrmView() {
 
                           {/* Special Events / Anniversaries */}
                           {dayEvents.map((ev) => (
-                            <button
+                            <div
                               key={ev.id}
-                              onClick={() =>
-                                ev.client?.phone
-                                  ? handleSendWhatsAppReminder(ev.client.phone, ev.client.name, ev.title)
-                                  : toast.info(`Evento: ${ev.title}`)
-                              }
-                              className="min-h-11 w-full text-left p-2 rounded-lg bg-pink-50/80 border border-pink-200 text-[10px] block hover:bg-pink-100 transition-colors"
+                              className="w-full p-1.5 rounded-lg bg-pink-50/80 border border-pink-200 text-[10px] flex items-center justify-between gap-1 hover:bg-pink-100 transition-colors"
                             >
-                              <span className="text-[9px] font-bold text-pink-700 block truncate">
-                                🎂 {ev.title}
-                              </span>
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  ev.client?.phone
+                                    ? handleSendWhatsAppReminder(ev.client.phone, ev.client.name, ev.title)
+                                    : toast.info(`Evento: ${ev.title}`)
+                                }
+                                className="text-left min-w-0 flex-1"
+                              >
+                                <span className="text-[9px] font-bold text-pink-700 block truncate">
+                                  🎂 {ev.title}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteSpecialEvent(ev.id);
+                                }}
+                                className="text-pink-400 hover:text-rose-600 p-0.5 rounded shrink-0"
+                                title="Eliminar fecha especial"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -521,8 +660,8 @@ export default function CrmView() {
 
                   <div className="flex items-center gap-4 text-xs font-semibold text-warm-700 flex-wrap pt-1">
                     <span>
-                      📅 Duración: {new Date(selectedCampaign.startDate).toLocaleDateString()} al{" "}
-                      {selectedCampaign.endDate ? new Date(selectedCampaign.endDate).toLocaleDateString() : ""} (
+                      📅 Duración: {formatDateBolivia(selectedCampaign.startDate)} al{" "}
+                      {selectedCampaign.endDate ? formatDateBolivia(selectedCampaign.endDate) : formatDateBolivia(selectedCampaign.startDate)} (
                       {selectedCampaign.durationDays} días activos)
                     </span>
                     <span>👤 Responsable: {selectedCampaign.responsible}</span>
@@ -605,13 +744,21 @@ export default function CrmView() {
                 />
               </div>
 
-              <div className="flex items-center gap-2 text-xs font-bold text-warm-600">
+              <div className="flex items-center gap-2 text-xs font-bold text-warm-600 flex-wrap">
                 <span>Total Clientes: {clients.length}</span>
                 {loyaltyQualifiedClientsCount > 0 && (
                   <span className="text-amberGold-800 bg-amberGold-100 px-2.5 py-1 rounded-lg border border-amberGold-200">
                     🎉 {loyaltyQualifiedClientsCount} con premio listo
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={openNewClientModal}
+                  className="min-h-11 px-3.5 py-2 bg-terracotta-500 hover:bg-terracotta-600 text-white rounded-xl text-xs font-bold shadow-warm flex items-center gap-1.5"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Nuevo Cliente</span>
+                </button>
               </div>
             </div>
           </div>
@@ -734,15 +881,25 @@ export default function CrmView() {
                             <span className="min-w-0 break-words text-warm-800 flex items-start gap-1">
                               <Gift className="h-3 w-3 shrink-0 text-terracotta-500" /> {sd.title}
                             </span>
-                            <span className="font-mono text-terracotta-700 font-semibold">
-                              {new Date(sd.eventDate).toLocaleDateString()}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-terracotta-700 font-semibold">
+                                {formatDateBolivia(sd.eventDate)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSpecialEvent(sd.id)}
+                                className="text-warm-400 hover:text-rose-600 p-0.5 rounded"
+                                title="Eliminar fecha especial"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
                     )}
 
-                    {/* WhatsApp Action Button */}
+                    {/* WhatsApp, Edit & Delete Action Buttons */}
                     <div className="flex items-center gap-2 pt-1">
                       <button
                         onClick={() =>
@@ -756,6 +913,16 @@ export default function CrmView() {
                       >
                         <Send className="h-3.5 w-3.5" />
                         <span>WhatsApp</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => openEditClientModal(c)}
+                        aria-label={`Editar cliente ${c.name}`}
+                        className="h-11 w-11 shrink-0 bg-warm-100 hover:bg-warm-200 text-warm-700 rounded-xl transition-colors inline-flex items-center justify-center"
+                        title="Editar datos o notas del cliente"
+                      >
+                        <Edit2 className="h-4 w-4" />
                       </button>
 
                       <button
@@ -932,7 +1099,7 @@ export default function CrmView() {
                       <div className="flex flex-wrap justify-between gap-x-2 gap-y-1">
                         <span className="text-warm-500">Duración:</span>
                         <strong className="text-warm-900">
-                          {new Date(camp.startDate).toLocaleDateString()} ({camp.durationDays} {camp.durationDays === 1 ? "día" : "días"})
+                          {formatDateBolivia(camp.startDate)} ({camp.durationDays} {camp.durationDays === 1 ? "día" : "días"})
                         </strong>
                       </div>
                       {camp.cost ? (
@@ -1019,6 +1186,165 @@ export default function CrmView() {
         onClose={() => setLoyaltyModalOpen(false)}
         onSuccess={(updated) => setLoyaltyConfig(updated)}
       />
+
+      {clientModalOpen && (
+        <div className="fixed inset-0 z-50 bg-warm-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-warm-200 shadow-2xl max-w-md w-full p-6 space-y-4">
+            <h3 className="font-bold text-base text-warm-900">
+              {editingClient ? `Editar Cliente: ${editingClient.name}` : "Registrar Nuevo Cliente CRM"}
+            </h3>
+            <form onSubmit={handleSaveClient} className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="font-bold text-warm-800 block">Nombre Completo *</label>
+                <input
+                  type="text"
+                  value={clientFormName}
+                  onChange={(e) => setClientFormName(e.target.value)}
+                  placeholder="Ej: María Fernanda Quiroga"
+                  className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl"
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-warm-800 block">Teléfono / WhatsApp *</label>
+                <input
+                  type="text"
+                  value={clientFormPhone}
+                  onChange={(e) => setClientFormPhone(e.target.value)}
+                  placeholder="Ej: 76543210"
+                  className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl font-mono"
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-warm-800 block">Flor / Estilo Favorito</label>
+                <input
+                  type="text"
+                  value={clientFormFlower}
+                  onChange={(e) => setClientFormFlower(e.target.value)}
+                  placeholder="Ej: Tulipanes, Rosas pastel..."
+                  className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-warm-800 block">Notas / Preferencias</label>
+                <textarea
+                  rows={2}
+                  value={clientFormNotes}
+                  onChange={(e) => setClientFormNotes(e.target.value)}
+                  placeholder="Preferencias de entrega, colores, alergias..."
+                  className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl resize-none"
+                />
+              </div>
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setClientModalOpen(false)}
+                  disabled={savingClient}
+                  className="px-4 py-2 bg-warm-100 text-warm-800 rounded-xl font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingClient}
+                  className="px-5 py-2 bg-terracotta-500 hover:bg-terracotta-600 text-white rounded-xl font-bold shadow-warm disabled:opacity-50"
+                >
+                  {savingClient ? "Guardando..." : editingClient ? "Guardar Cambios" : "Registrar Cliente"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {eventModalOpen && (
+        <div className="fixed inset-0 z-50 bg-warm-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-warm-200 shadow-2xl max-w-md w-full p-6 space-y-4">
+            <h3 className="font-bold text-base text-warm-900">Agendar Fecha Especial / Aniversario</h3>
+            <form onSubmit={handleCreateSpecialEvent} className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="font-bold text-warm-800 block">Título del Evento *</label>
+                <input
+                  type="text"
+                  value={eventTitle}
+                  onChange={(e) => setEventTitle(e.target.value)}
+                  placeholder="Ej: Aniversario de Bodas, Cumpleaños Mamá..."
+                  className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-800 block">Categoría</label>
+                  <select
+                    value={eventType}
+                    onChange={(e) => setEventType(e.target.value)}
+                    className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl font-semibold"
+                  >
+                    <option value="Aniversario">Aniversario</option>
+                    <option value="Cumpleaños">Cumpleaños</option>
+                    <option value="Día Especial">Día Especial</option>
+                    <option value="Graduación">Graduación</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-warm-800 block">Fecha *</label>
+                  <input
+                    type="date"
+                    value={eventDate}
+                    onChange={(e) => setEventDate(e.target.value)}
+                    className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-warm-800 block">Vincular a Cliente (Opcional)</label>
+                <select
+                  value={eventClientId}
+                  onChange={(e) => setEventClientId(e.target.value)}
+                  className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl"
+                >
+                  <option value="">— Evento General / Sin cliente —</option>
+                  {clients.map((cl) => (
+                    <option key={cl.id} value={cl.id}>
+                      {cl.name} ({cl.phone})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="font-bold text-warm-800 block">Notas / Recordatorio</label>
+                <input
+                  type="text"
+                  value={eventNotes}
+                  onChange={(e) => setEventNotes(e.target.value)}
+                  placeholder="Ej: Enviar catálogo 3 días antes por WhatsApp..."
+                  className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl"
+                />
+              </div>
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEventModalOpen(false)}
+                  disabled={savingEvent}
+                  className="px-4 py-2 bg-warm-100 text-warm-800 rounded-xl font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEvent}
+                  className="px-5 py-2 bg-terracotta-500 hover:bg-terracotta-600 text-white rounded-xl font-bold shadow-warm disabled:opacity-50"
+                >
+                  {savingEvent ? "Guardando..." : "Guardar Fecha"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

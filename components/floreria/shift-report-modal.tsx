@@ -14,6 +14,7 @@ export interface ShiftReportData {
   id: string;
   shiftDate: string;
   cashierName: string;
+  status?: string;
   openingBalance: number;
   closingBalance?: number;
   totalSalesCash: number;
@@ -109,11 +110,13 @@ export default function ShiftReportModal({
             </div>
             <div className="text-right space-y-1">
               <span className="px-3 py-1 bg-warm-100 text-warm-900 text-xs font-bold rounded-lg border border-warm-300 inline-block font-mono">
-                TURNO CONCLUIDO
+                {shiftReport.status === "Open" ? "TURNO EN CURSO" : "TURNO CONCLUIDO"}
               </span>
               <p className="text-[11px] font-bold text-warm-800">Cajero: <strong>{shiftReport.cashierName}</strong></p>
               <p className="text-[10px] text-warm-500 font-mono">
-                Cierre: {shiftReport.closedAt ? new Date(shiftReport.closedAt).toLocaleString() : new Date().toLocaleString()}
+                {shiftReport.status === "Open"
+                  ? `Apertura: ${new Date(shiftReport.createdAt).toLocaleString()}`
+                  : `Cierre: ${shiftReport.closedAt ? new Date(shiftReport.closedAt).toLocaleString() : new Date().toLocaleString()}`}
               </p>
             </div>
           </div>
@@ -129,8 +132,10 @@ export default function ShiftReportModal({
               <span className="text-sm font-extrabold text-emerald-700 font-mono">{formatCurrency(shiftReport.totalSalesCash)}</span>
             </div>
             <div className="p-3 bg-blue-50/80 rounded-2xl border border-blue-200 print:border-warm-400">
-              <span className="text-[10px] text-blue-800 uppercase font-bold block">Ventas QR / Digital:</span>
-              <span className="text-sm font-extrabold text-blue-700 font-mono">{formatCurrency(shiftReport.totalSalesQR)}</span>
+              <span className="text-[10px] text-blue-800 uppercase font-bold block">Ventas QR / Tarjeta:</span>
+              <span className="text-sm font-extrabold text-blue-700 font-mono">
+                {formatCurrency(shiftReport.totalSalesQR + (shiftReport.totalSalesCard || 0))}
+              </span>
             </div>
             <div className="p-3 bg-rose-50/80 rounded-2xl border border-rose-200 print:border-warm-400">
               <span className="text-[10px] text-rose-800 uppercase font-bold block">Egresos / Gastos:</span>

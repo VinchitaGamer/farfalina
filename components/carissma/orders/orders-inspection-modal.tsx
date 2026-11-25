@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { X, Check, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateBolivia, diffBoliviaCalendarDays, getBoliviaDateStr } from "@/lib/utils";
 import { returnRentalDressAction } from "@/app/actions/carissma";
 import { toast } from "@/components/ui/toast";
 import { BookingItem } from "../orders-view";
@@ -24,22 +24,23 @@ export default function OrdersInspectionModal({
   const [calculatedLateDays, setCalculatedLateDays] = useState(0);
   const [penaltyFeeInput, setPenaltyFeeInput] = useState<number | string>(0);
   const [guaranteeStatusChoice, setGuaranteeStatusChoice] = useState<"Devuelta" | "Retenida Parcial" | "Retenida Total">("Devuelta");
-  const [nextDressStatusChoice, setNextDressStatusChoice] = useState<"En Lavandería" | "Disponible" | "Requiere Mantenimiento">("En Lavandería");
+  const [nextDressStatusChoice, setNextDressStatusChoice] = useState<"Devuelto / Revisión" | "En Lavandería" | "Disponible" | "Requiere Mantenimiento">("En Lavandería");
   const [processingReturn, setProcessingReturn] = useState(false);
 
   useEffect(() => {
     if (inspectingBooking) {
       setReturnNotes("");
-      setGuaranteeStatusChoice("Devuelta");
       setNextDressStatusChoice("En Lavandería");
 
-      const end = new Date(inspectingBooking.rentalEndDate);
-      const now = new Date();
-      const diffMs = now.getTime() - end.getTime();
-      const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+      const diffDays = Math.max(
+        0,
+        diffBoliviaCalendarDays(getBoliviaDateStr(), inspectingBooking.rentalEndDate)
+      );
 
       setCalculatedLateDays(diffDays);
-      setPenaltyFeeInput(diffDays * lateFeePerDay);
+      const suggestedPenalty = diffDays * lateFeePerDay;
+      setPenaltyFeeInput(suggestedPenalty);
+      setGuaranteeStatusChoice(suggestedPenalty > 0 ? "Retenida Parcial" : "Devuelta");
     }
   }, [inspectingBooking, lateFeePerDay]);
 
@@ -87,7 +88,7 @@ export default function OrdersInspectionModal({
             <p><strong>Clienta:</strong> {inspectingBooking.clientName}</p>
             <p><strong>Prenda:</strong> {inspectingBooking.dressName} ({inspectingBooking.dressSize})</p>
             <p><strong>Garantía Custodiada:</strong> <span className="font-bold text-emerald-700">{formatCurrency(inspectingBooking.guaranteeAmount)}</span></p>
-            <p><strong>Fecha Pactada:</strong> {new Date(inspectingBooking.rentalEndDate).toLocaleDateString()}</p>
+            <p><strong>Fecha Pactada:</strong> {formatDateBolivia(inspectingBooking.rentalEndDate)}</p>
           </div>
 
           {calculatedLateDays > 0 ? (
@@ -122,11 +123,15 @@ export default function OrdersInspectionModal({
               <label className="font-bold text-warm-800">Resolución de Garantía *</label>
               <select
                 value={guaranteeStatusChoice}
-                onChange={(e) =>
-                  setGuaranteeStatusChoice(
-                    e.target.value as "Devuelta" | "Retenida Parcial" | "Retenida Total"
-                  )
-                }
+                onChange={(e) => {
+                  const nextVal = e.target.value as "Devuelta" | "Retenida Parcial" | "Retenida Total";
+                  setGuaranteeStatusChoice(nextVal);
+                  if (nextVal === "Devuelta") {
+                    setPenaltyFeeInput(0);
+                  } else if (nextVal === "Retenida Total" && Number(penaltyFeeInput) <= 0) {
+                    setPenaltyFeeInput(inspectingBooking.guaranteeAmount);
+                  }
+                }}
                 className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-base sm:text-xs text-warm-900"
               >
                 <option value="Devuelta">Devolver Completa a Clienta</option>
@@ -142,13 +147,14 @@ export default function OrdersInspectionModal({
               value={nextDressStatusChoice}
               onChange={(e) =>
                 setNextDressStatusChoice(
-                  e.target.value as "En Lavandería" | "Disponible" | "Requiere Mantenimiento"
+                  e.target.value as "Devuelto / Revisión" | "En Lavandería" | "Disponible" | "Requiere Mantenimiento"
                 )
-            }
+              }
               className="w-full p-2.5 bg-warm-50 border border-warm-200 rounded-xl text-base sm:text-xs text-warm-900"
             >
-              <option value="En Lavandería">Enviar a Tintorería / Lavado Seco</option>
-              <option value="Disponible">Disponible Directo (Limpia)</option>
+              <option value="En Lavandería">Enviar a 5. Tintorería / Lavado Seco</option>
+              <option value="Devuelto / Revisión">Pasar a 4. Revisión en Tienda</option>
+              <option value="Disponible">Disponible Directo en Perchero (Limpia)</option>
               <option value="Requiere Mantenimiento">Requiere Modistería / Arreglo</option>
             </select>
           </div>

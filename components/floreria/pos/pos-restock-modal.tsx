@@ -41,7 +41,7 @@ export default function PosRestockModal({
   useEffect(() => {
     if (stockItem && isOpen) {
       const hasPrevPkg = Boolean(stockItem.packageCost && stockItem.unitsPerPackage);
-      setMode(hasPrevPkg ? "packages" : "packages");
+      setMode(hasPrevPkg ? "packages" : "units");
       setPackageCost(stockItem.packageCost ? String(stockItem.packageCost) : "");
       setPackageCount("1");
       setUnitsPerPackage(stockItem.unitsPerPackage ? String(stockItem.unitsPerPackage) : "24");

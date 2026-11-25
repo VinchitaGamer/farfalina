@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
-import { calculateLoyaltyTier, sanitizeClientPhoneAndName } from "@/lib/crm-utils";
+import { calculateLoyaltyTier, sanitizeClientPhoneAndName, buildPhoneLookupCandidates } from "@/lib/crm-utils";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
         : (address?.trim() || "Dirección a coordinar");
     const finalZone = deliveryType === "pickup" ? "Tienda Central" : zone;
     const finalDeliveryFee = deliveryType === "pickup" ? 0 : deliveryFee;
-    const finalTotal = salePrice + finalDeliveryFee;
+    const finalTotal = total > 0 ? total : salePrice + finalDeliveryFee;
 
     const sharedSuffix = `${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 900 + 100)}`;
     const orderNumber = `PED-${sharedSuffix}`;
@@ -139,14 +139,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // If no explicit recipeItems provided, auto-link from catalog arrangement
+      // If no explicit recipeItems provided, auto-link ONLY on exact case-insensitive catalog name match
       if (validRecipeItems.length === 0 && arrangementName) {
         const matchingArrangement = await tx.arrangement.findFirst({
           where: {
-            OR: [
-              { name: arrangementName.trim() },
-              { name: { contains: arrangementName.trim() } },
-            ],
+            name: { equals: arrangementName.trim(), mode: "insensitive" },
           },
           include: {
             recipeItems: {
@@ -270,12 +267,11 @@ export async function POST(req: NextRequest) {
       const cleanClientName = sanitized.name;
 
       if (cleanPhone && cleanPhone.length >= 6) {
-        const existingClient = await tx.cRMClient.findUnique({
+        const phoneCandidates = buildPhoneLookupCandidates(cleanPhone);
+        const existingClient = await tx.cRMClient.findFirst({
           where: {
-            crmclient_phone_env_unique: {
-              phone: cleanPhone,
-              environment,
-            },
+            environment,
+            phone: { in: phoneCandidates },
           },
         });
 
